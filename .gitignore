@@ -2,7 +2,10 @@
 .env.bak
 .DS_Store
 venv/
+.venv/
 __pycache__/
 .claude/
+.idea/
+
 .kroger_tokens.json
 .kroger_tokens.json.tmp
