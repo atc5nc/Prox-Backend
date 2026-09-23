@@ -5,6 +5,7 @@ import logging
 from collections import defaultdict
 from config.supabase import get_supabase_client
 from scoring.product_normalizer import make_match_key
+from scoring.category_classifier import classify_product
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -92,6 +93,9 @@ def main():
                 payload["brand"] = result["brand"]
             if result["canonical_name"]:
                 payload["canonical_product_name"] = result["canonical_name"]
+                payload["category"] = classify_product(
+                    row.get("product_name"), result["canonical_name"]
+                )
             if len(payload) > 1:
                 to_write.append(payload)
             else:

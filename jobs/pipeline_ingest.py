@@ -7,6 +7,8 @@ import time
 from datetime import datetime
 from config.supabase import get_supabase_client
 from services.store_matching import find_store_for_deal, get_match_cache_stats
+from scoring.product_normalizer import extract_brand, build_canonical_name, make_match_key
+from scoring.category_classifier import classify_product
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger   = logging.getLogger(__name__)
@@ -101,6 +103,20 @@ def ingest_deals(deals: list[dict], dry_run: bool = False) -> dict:
                 # ── store matching fields ──
                 **_build_match_payload(match),
             }
+            product_name = raw["product_name"]
+            brand = raw.get("brand") or extract_brand(product_name)
+            canonical_name = build_canonical_name(product_name, brand)
+            match_key = make_match_key(
+                product_name,
+                raw.get("base_amount"),
+                raw.get("base_unit"),
+            )["match_key"]
+            row.update({
+                "brand": brand,
+                "canonical_product_name": canonical_name,
+                "match_key": match_key,
+                "category": classify_product(product_name, canonical_name),
+            })
 
             # strip keys where value is None to avoid overwriting existing data
             row = {k: v for k, v in row.items() if v is not None}

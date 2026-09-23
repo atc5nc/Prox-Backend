@@ -434,6 +434,7 @@ def extract_brand(product_name: str) -> str | None:
 
 def build_canonical_name(product_name: str, brand: str | None) -> str:
     name = _normalize_apostrophes(product_name).lower().strip()
+    original_name = name
     name = _truncate_bulk_description(name)
     if brand and name.startswith(brand.lower()):
         name = name[len(brand):].lstrip(" ,-")
@@ -454,6 +455,22 @@ def build_canonical_name(product_name: str, brand: str | None) -> str:
     name = re.sub(r"^(with|and|or|in|of|for|the|a|an)\b\s*", "", name).strip()
     if not name and brand:
         name = brand
+    # Preserve product form in the identity.  Removing package words such as
+    # "can" must not merge canned chicken/fish with raw or fresh products.
+    form_prefix = None
+    if re.search(
+        r"\b(canned|tinned|pouched)\b|\b(in water|in oil)\b",
+        original_name,
+    ):
+        form_prefix = "canned"
+    elif re.search(
+        r"\b(prepared|ready[- ]to[- ]eat|parmesan[- ]crusted|"
+        r"tortellini|enchilada|casserole|lasagna|lasagne)\b",
+        original_name,
+    ):
+        form_prefix = "prepared"
+    if form_prefix and not name.startswith(f"{form_prefix} "):
+        name = f"{form_prefix} {name}".strip()
     _SORTABLE_BRANDS = {
         "cheerios", "eggo", "oreo", "wheaties", "trix",
         "kix", "chex", "clif", "rxbar",

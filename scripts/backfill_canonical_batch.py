@@ -8,6 +8,7 @@ import re
 from config.supabase import get_supabase_client
 from scoring.product_normalizer import extract_brand, build_canonical_name
 from services.cross_retailer_service import _get_kiran_lookup, _kiran_canonical
+from scoring.category_classifier import classify_product
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ def main():
                 "canonical_product_name": canonical,
                 "brand": brand,
                 "match_key": match_key,
+                "category": classify_product(product_name, canonical),
             })
 
         if to_write:
