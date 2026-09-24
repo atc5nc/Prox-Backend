@@ -17,12 +17,38 @@ class CategoryClassificationTests(unittest.TestCase):
         self.assertEqual(classify_product("Fresh Chicken Breast"), "MEAT")
         self.assertEqual(classify_product("Fresh Salmon Fillet"), "SEAFOOD")
 
+    def test_weak_packaging_and_product_words_do_not_override_category(self):
+        self.assertEqual(
+            classify_product("Chicken Pouch", existing_category="MEAT"),
+            "MEAT",
+        )
+        self.assertEqual(
+            classify_product("Salmon Fillet", existing_category="PANTRY"),
+            "PANTRY",
+        )
+        self.assertEqual(
+            classify_product("Chicken Patty", existing_category="FROZEN"),
+            "FROZEN",
+        )
+        self.assertEqual(
+            classify_product("Salad Kit", existing_category="PRODUCE"),
+            "PRODUCE",
+        )
+
     def test_prepared_dishes_are_not_raw_ingredients(self):
         self.assertEqual(
             classify_product("Parmesan-Crusted Chicken"), "DELI_PREPARED"
         )
         self.assertEqual(
             classify_product("Spinach-and-Cheese Tortellini"), "DELI_PREPARED"
+        )
+        self.assertEqual(
+            classify_product("Uncooked Cheese Tortellini", existing_category="PANTRY"),
+            "PANTRY",
+        )
+        self.assertEqual(
+            classify_product("Frozen Chicken Meal", existing_category="FROZEN"),
+            "FROZEN",
         )
 
     def test_packaged_food_does_not_inherit_produce(self):

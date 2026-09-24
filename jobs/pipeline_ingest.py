@@ -111,11 +111,16 @@ def ingest_deals(deals: list[dict], dry_run: bool = False) -> dict:
                 raw.get("base_amount"),
                 raw.get("base_unit"),
             )["match_key"]
+            category = classify_product(
+                product_name,
+                canonical_name,
+                existing_category=raw.get("category"),
+            )
             row.update({
                 "brand": brand,
                 "canonical_product_name": canonical_name,
                 "match_key": match_key,
-                "category": classify_product(product_name, canonical_name),
+                "category": category,
             })
 
             # strip keys where value is None to avoid overwriting existing data

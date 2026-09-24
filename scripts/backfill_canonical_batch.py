@@ -63,12 +63,17 @@ def main():
             size_str = str(size) if size is not None else "no_size"
             match_key = f"{brand or ''}|{canonical}|{size_str}"
 
+            category = classify_product(
+                product_name,
+                canonical,
+                existing_category=row.get("category"),
+            )
             to_write.append({
                 "id": row["id"],
                 "canonical_product_name": canonical,
                 "brand": brand,
                 "match_key": match_key,
-                "category": classify_product(product_name, canonical),
+                **({"category": category} if category else {}),
             })
 
         if to_write:

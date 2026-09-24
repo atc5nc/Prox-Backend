@@ -93,9 +93,13 @@ def main():
                 payload["brand"] = result["brand"]
             if result["canonical_name"]:
                 payload["canonical_product_name"] = result["canonical_name"]
-                payload["category"] = classify_product(
-                    row.get("product_name"), result["canonical_name"]
+                category = classify_product(
+                    row.get("product_name"),
+                    result["canonical_name"],
+                    existing_category=row.get("category"),
                 )
+                if category:
+                    payload["category"] = category
             if len(payload) > 1:
                 to_write.append(payload)
             else:
