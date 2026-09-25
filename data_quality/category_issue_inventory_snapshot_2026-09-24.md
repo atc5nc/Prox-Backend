@@ -31,17 +31,24 @@ production backfill.
 | `Uncooked Cheese Tortellini` | Must not become prepared food from the word tortellini alone. | Preserve existing category |
 | `Chicken Pouch` | Pouch alone is insufficient evidence. | Preserve existing category |
 | `Fruit Bar` | Could appear under `PRODUCE`. | `SNACKS` |
-| `Baby Food Pouch` | Could appear under `PRODUCE`. | `PANTRY` |
+| `Baby Food Pouch` | Could appear under `PRODUCE`. | `BABY` |
+| `Mushroom Chocolate` | Could appear under `PRODUCE`. | `SNACKS` |
+| `Canned Chicken Dog Food` | Could inherit canned-protein `PANTRY` classification. | `PET` |
+| `Frozen Chicken Lasagna` | Could inherit prepared-dish `DELI_PREPARED` classification. | `FROZEN` |
 
 ## Validation
 
 `PYTHONPATH=. python3 scripts/test_category_classification.py`
 
 ```text
-......
-Ran 6 tests
+........
+Ran 8 tests
 OK
 ```
+
+The client repository's focused Deals and Cart Finder regression tests also
+validate the section destinations and preservation of category/canonical
+fields; see the linked app PR for the test output.
 
 The existing deterministic matching script also completed its read-only
 50,796-row run after the missing dependencies and local CA bundle were
@@ -56,3 +63,9 @@ Rows in those groups:   9,471 (18.6%)
 
 That matching report is a separate identity-quality result, not a category
 defect count.
+
+These counts are still a limited 5,000-row REST snapshot. They are not
+full-table retailer counts; the August 25 processed count and current
+app-eligible count remain separate measures. The newly identified snack,
+baby-food, pet-food, frozen-meal, and pasta cases need full SQL counts before
+the ranking can be considered final.

@@ -27,7 +27,7 @@ def main():
         # Always fetch from offset 0 — processed rows are updated and disappear from query
         res = (
             sb.table("flyer_deals")
-            .select("id, product_name, brand, retailer, base_amount, base_unit")
+            .select("id, product_name, brand, retailer, category, base_amount, base_unit")
             .is_("canonical_product_name", "null")
             .not_.is_("product_name", "null")
             .limit(BATCH)

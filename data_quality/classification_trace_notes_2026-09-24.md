@@ -19,30 +19,33 @@
 
 ## Deals and Grocery List findings
 
-- [`mobile_app/src/pages/deals/fetchFlyerDeals.ts`](../mobile_app/src/pages/deals/fetchFlyerDeals.ts)
-  reads `category` from `flyer_deals`.
-- [`mobile_app/src/pages/deals/flyerDeals.ts`](../mobile_app/src/pages/deals/flyerDeals.ts)
-  passes that value through to the app model.
-- [`mobile_app/src/pages/deals/useDealsPageState.ts`](../mobile_app/src/pages/deals/useDealsPageState.ts)
-  sends the fetched items into the Deals derivation/section helpers.
-- The checkout does not contain the imported `catalog`, `browseDerivations`,
-  or cart-rendering modules, so the final client section implementation cannot
-  be independently verified from this backend checkout.
-- Search-originated cart items previously discarded category in
-  `proxSearch.ts`; that is a confirmed grouping/data-loss defect and is fixed
-  in the working tree.
+- The complete private client checkout is accessible at
+  `atc5nc/mobile_app`, local branch `agents/category-misplacement-guards`.
+- `src/pages/deals/categories.ts` maps `DELI_PREPARED` to the existing
+  "Deli + Prepared Foods" section; it is not a new taxonomy value.
+- `src/pages/deals/catalog.ts` groups landing Deals by stored category and
+  now applies narrow product-form guards for screenshot examples (packaged
+  bars/chocolate, baby food, canned protein, specific prepared dishes) and
+  pet/frozen exclusions.
+- `src/pages/deals/sectionContinuation.ts` applies the same resolved category
+  when filtering category See All pages. Since those pages fetch by stored DB
+  category, a misclassified item is removed from the incorrect page but may
+  not appear in its correct See All page until the stored category or RPC
+  candidate scope is corrected.
+- Cart Finder uses category carried on deal results for product-category
+  gating. The saved/manual Grocery List itself groups by retailer, not
+  department. Backend search results now project category and the app adapter
+  carries it into cart items.
+- Client tests exercise the actual Deals landing and See All derivation
+  functions. No production endpoint or data was changed. A visual local
+  before/after capture remains outstanding.
 
 ## Taxonomy finding
 
-`DELI_PREPARED` is already used as a supported backend preference value in
-[`scripts/run_notification_trigger.py`](../scripts/run_notification_trigger.py).
-The classifier now uses it only for explicit prepared-dish combinations; it
-does not classify frozen meals, uncooked pasta, or a standalone keyword as
-`DELI_PREPARED`.
-
-The missing app catalog/derivation modules prevent a definitive confirmation
-of the displayed title mapping. That is an app checkout/content blocker, not
-a production write blocker.
+`DELI_PREPARED` is a supported taxonomy key and maps to "Deli + Prepared
+Foods" in the app. The classifier uses explicit dish/form combinations only;
+frozen dishes stay `FROZEN`, and uncooked tortellini retains its existing
+category and canonical form.
 
 ## RPC finding
 
@@ -65,11 +68,13 @@ linked migration PR.
 
 ## Remaining blockers and exact help needed
 
-1. Full counts: run the inventory SQL with a query path that can complete the
-   full-table scan, or provide a read-only database connection if REST times
-   out.
-2. RPC behavior: run the catalog query in Supabase SQL Editor or provide its
-   output; do not invoke the classifier RPCs.
-3. Grocery List UI: provide the app checkout/repository containing the missing
-   catalog and cart rendering modules, or confirm that this backend checkout is
-   the intended source for Monday's test demo.
+1. Full counts: run the inventory SQL in a read-only SQL Editor or database
+   connection that can complete the full-table scan. The 5,000-row REST
+   snapshot is not the final cross-retailer ranking.
+2. RPC behavior: current SQL Editor access has not been verified. Needed:
+   read-only access to this project's Supabase SQL Editor, or the output of
+   [`v27_rpc_definition_query.sql`](./v27_rpc_definition_query.sql) run there.
+   Do not invoke worker/classifier RPCs; they may write.
+3. Local visual evidence: run the client against local/test fixtures and
+   capture Deals and Cart Finder before/after. No production endpoint is
+   required for this verification.

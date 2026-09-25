@@ -464,10 +464,12 @@ def build_canonical_name(product_name: str, brand: str | None) -> str:
     ):
         form_prefix = "canned"
     elif re.search(
-        r"\b(prepared|ready[- ]to[- ]eat|parmesan[- ]crusted|"
-        r"tortellini|enchilada|casserole|lasagna|lasagne)\b",
+        r"\b(parmesan[- ]crusted\s+(?:chicken|fish|salmon)|"
+        r"spinach[- ]and[- ]cheese\s+tortellini|"
+        r"(?:chicken|beef|fish)\s+(?:enchiladas?|casserole|lasagna|lasagne)|"
+        r"(?:deli|hot|rotisserie)\s+(?:meal|dish|chicken|pasta))\b",
         original_name,
-    ):
+    ) and not re.search(r"\b(uncooked|frozen)\b", original_name):
         form_prefix = "prepared"
     if form_prefix and not name.startswith(f"{form_prefix} "):
         name = f"{form_prefix} {name}".strip()

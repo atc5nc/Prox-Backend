@@ -14,6 +14,7 @@ CATEGORY_MEAT = "MEAT"
 CATEGORY_SEAFOOD = "SEAFOOD"
 CATEGORY_DELI_PREPARED = "DELI_PREPARED"
 CATEGORY_SNACKS = "SNACKS"
+CATEGORY_BABY = "BABY"
 
 _PACKAGED_PROTEIN_RE = re.compile(
     r"\b(canned|tinned|in water|in oil)\b"
@@ -22,8 +23,7 @@ _PACKAGED_PROTEIN_RE = re.compile(
     re.I,
 )
 _PREPARED_RE = re.compile(
-    r"\bready[- ]to[- ]eat\b"
-    r"|\bparmesan[- ]crusted\s+(?:chicken|fish|salmon)\b"
+    r"\bparmesan[- ]crusted\s+(?:chicken|fish|salmon)\b"
     r"|\bspinach[- ]and[- ]cheese\s+tortellini\b"
     r"|\b(?:chicken|beef|fish)\s+(?:enchiladas?|casserole|lasagna|lasagne)\b"
     r"|\b(?:deli|hot|rotisserie)\s+(?:meal|dish|chicken|pasta)\b",
@@ -51,6 +51,7 @@ _PROCESSED_PROTEIN_RE = re.compile(
     r"baby food|cat food|dog food)\b",
     re.I,
 )
+_PET_FOOD_RE = re.compile(r"\b(cat food|dog food|pet food|puppy food|kitten food)\b", re.I)
 
 
 def classify_product(
@@ -65,6 +66,9 @@ def classify_product(
     if not text:
         return None
 
+    if _PET_FOOD_RE.search(text):
+        return "PET"
+
     # Form takes precedence over the ingredient so packaged proteins do not
     # inherit the raw-meat department.
     protein_text = re.search(
@@ -73,7 +77,11 @@ def classify_product(
     if protein_text and _PACKAGED_PROTEIN_RE.search(text):
         return CATEGORY_PANTRY
     if _BABY_FOOD_RE.search(text):
-        return CATEGORY_PANTRY
+        return CATEGORY_BABY
+    if _PREPARED_RE.search(text) and re.search(r"\b(frozen|uncooked)\b", text, re.I):
+        if re.search(r"\buncooked\b", text, re.I):
+            return existing_category
+        return "FROZEN"
     if _PREPARED_RE.search(text):
         return CATEGORY_DELI_PREPARED
     if _PACKAGED_SNACK_RE.search(text):

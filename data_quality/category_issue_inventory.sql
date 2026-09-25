@@ -2,9 +2,9 @@
 -- Keep the agreed cutoff in one place. Counts are reported separately for
 -- recently processed rows and rows currently eligible for app surfaces.
 -- No statement below mutates production data.
-\set cutoff_date '2026-08-25'
-
-with base as (
+with params as (
+  select date '2026-08-25' as cutoff_date
+), base as (
   select
     id,
     coalesce(nullif(lower(trim(retailer_key)), ''),
@@ -26,28 +26,32 @@ with base as (
 ), patterns as (
   select *,
     case
-      when product_text ~ '\\m(canned|tinned|in water|in oil|cans?)\\M'
-        and product_text ~ '\\m(chicken|fish|salmon|tuna|sardines?|anchovies?)\\M'
-        and product_text !~ '\\m(cat|kitten|dog food)\\M'
+      when product_text ~ '\m(canned|tinned|in water|in oil|cans?)\M'
+        and product_text ~ '\m(chicken|fish|salmon|tuna|sardines?|anchovies?)\M'
+        and product_text !~ '\m(cat food|kitten food|dog food|pet food)\M'
         and upper(coalesce(category, '')) <> 'PANTRY'
         then 'canned chicken/fish not in PANTRY'
-      when product_text ~ '\\m(chicken (breast|thigh|leg|wing)|whole chicken|drumsticks?)\\M'
-        and product_text !~ '\\m(canned|tinned|in water|in oil|cans?)\\M'
-        and product_text !~ '\\m(rotisserie|deli|cooked|grilled|breaded|nuggets?|tenders?|tenderloins?|patties?|skewers?|burgers?|meal|prepared|ready[- ]to[- ]eat|cat food|dog food)\\M'
+      when product_text ~ '\m(chicken (breast|thigh|leg|wing)|whole chicken|drumsticks?)\M'
+        and product_text !~ '\m(canned|tinned|in water|in oil|cans?)\M'
+        and product_text !~ '\m(rotisserie|deli|cooked|grilled|breaded|nuggets?|tenders?|tenderloins?|patties?|skewers?|burgers?|meal|prepared|ready[- ]to[- ]eat|cat food|dog food|pet food)\M'
         and upper(coalesce(category, '')) <> 'MEAT'
         then 'raw chicken not in MEAT'
-      when product_text ~ '\\m(fillet|salmon|cod|tilapia|trout|halibut|catfish|fresh fish)\\M'
-        and product_text ~ '\\m(raw|fresh|wild[- ]caught|farm[- ]raised|portion|portions)\\M'
-        and product_text !~ '\\m(canned|tinned|in water|in oil|cans?)\\M'
-        and product_text !~ '\\m(smoked|prepared|ready[- ]to[- ]eat|cat food|dog food|baby food)\\M'
+      when product_text ~ '\m(fillet|salmon|cod|tilapia|trout|halibut|catfish|fresh fish)\M'
+        and product_text ~ '\m(raw|fresh|wild[- ]caught|farm[- ]raised|portion|portions)\M'
+        and product_text !~ '\m(canned|tinned|in water|in oil|cans?)\M'
+        and product_text !~ '\m(smoked|prepared|ready[- ]to[- ]eat|cat food|dog food|baby food|pet food)\M'
         and upper(coalesce(category, '')) <> 'SEAFOOD'
         then 'raw fish not in SEAFOOD'
-      when product_text ~ '\\m(ready[- ]to[- ]eat|parmesan[- ]crusted\\s+(chicken|fish|salmon)|spinach[- ]and[- ]cheese\\s+tortellini|(?:chicken|beef|fish)\\s+(enchiladas?|casserole|lasagna|lasagne)|(?:deli|hot|rotisserie)\\s+(meal|dish|chicken|pasta))\\M'
-        and upper(coalesce(category, '')) in ('PRODUCE', 'DAIRY_EGGS', 'MEAT', 'SEAFOOD')
+      when product_text ~ '\m(parmesan[- ]crusted\s+(chicken|fish|salmon)|spinach[- ]and[- ]cheese\s+tortellini|(?:chicken|beef|fish)\s+(enchiladas?|casserole|lasagna|lasagne)|(?:deli|hot|rotisserie)\s+(meal|dish|chicken|pasta))\M'
+        and product_text !~ '\mfrozen\M'
+        and upper(coalesce(category, '')) in ('PRODUCE', 'DAIRY', 'EGGS', 'MEAT', 'SEAFOOD')
         then 'prepared dish in raw/ingredient department'
-      when product_text ~ '\\m(fruit bar|granola bar|protein bar|baby[- ]food|mushroom chocolate|chocolate bar)\\M'
+      when product_text ~ '\m(fruit bar|granola bar|protein bar|mushroom chocolate|chocolate bar)\M'
         and upper(coalesce(category, '')) = 'PRODUCE'
         then 'packaged snack or baby food in PRODUCE'
+      when product_text ~ '\m(baby food|infant food)\M'
+        and upper(coalesce(category, '')) = 'PRODUCE'
+        then 'baby food in PRODUCE'
       else null
     end as issue
   from eligible
@@ -62,7 +66,7 @@ select
   count(*) as affected_row_count,
   count(distinct coalesce(nullif(trim(canonical_product_name), ''), product_name))
     as affected_distinct_products,
-  count(*) filter (where processed_at >= :'cutoff_date'::date)
+  count(*) filter (where processed_at >= (select cutoff_date from params))
     as recently_processed_row_count,
   count(*) filter (where deals_eligible) as currently_deals_eligible_count,
   count(*) filter (where search_and_deals_eligible)
