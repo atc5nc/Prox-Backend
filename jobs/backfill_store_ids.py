@@ -42,6 +42,40 @@ DEFAULT_PAGE_SIZE = int(os.getenv("STORE_LOCATION_PAGE_SIZE", "1000"))
 BATCH_WRITE_MAX = int(os.getenv("STORE_LOCATION_WRITE_CHUNK", "50"))
 MIN_CHUNK = 1
 TIMEOUT_CODE = "57014"
+TRANSIENT_NETWORK_MARKERS = (
+    "RemoteProtocolError",
+    "ReadError",
+    "ConnectError",
+    "TimeoutException",
+    "ConnectionTerminated",
+    "Resource temporarily unavailable",
+    "Server disconnected",
+)
+MAX_NETWORK_RETRIES = int(os.getenv("STORE_LOCATION_NETWORK_RETRIES", "5"))
+
+
+def _is_transient_network_error(exc: Exception) -> bool:
+    text = f"{type(exc).__name__}: {exc}"
+    return any(marker in text for marker in TRANSIENT_NETWORK_MARKERS)
+
+
+def _execute_with_retry(operation, *, label: str):
+    for attempt in range(1, MAX_NETWORK_RETRIES + 1):
+        try:
+            return operation()
+        except Exception as exc:
+            if not _is_transient_network_error(exc) or attempt >= MAX_NETWORK_RETRIES:
+                raise
+            delay = min(0.5 * (2 ** (attempt - 1)), 8.0)
+            logger.warning(
+                "Transient Supabase/httpx error during %s (attempt %s/%s): %s; retrying in %.1fs",
+                label,
+                attempt,
+                MAX_NETWORK_RETRIES,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
 
 
 def _fetch_page(
@@ -66,7 +100,11 @@ def _fetch_page(
     if created_after:
         q = q.gte("created_at", created_after)
 
-    return q.execute().data or []
+    result = _execute_with_retry(
+        q.execute,
+        label=f"fetch flyer_deals page after id={last_id} retailer={retailer_filter or '*'}",
+    )
+    return result.data or []
 
 
 def _build_payload(match) -> dict:
@@ -89,7 +127,10 @@ def _write_chunk(ids: list, payload: dict, depth: int = 0) -> tuple[int, int]:
         return 0, 0
 
     try:
-        supabase.table("flyer_deals").update(payload).in_("id", ids).execute()
+        _execute_with_retry(
+            lambda: supabase.table("flyer_deals").update(payload).in_("id", ids).execute(),
+            label=f"write flyer_deals store match chunk size={len(ids)}",
+        )
         return len(ids), 0
 
     except Exception as exc:

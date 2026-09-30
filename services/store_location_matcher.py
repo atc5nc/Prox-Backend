@@ -24,6 +24,22 @@ supabase = get_supabase_client()
 CACHE_TTL_SECONDS = int(os.getenv("STORE_LOCATION_CACHE_TTL_SECONDS", "900"))
 MAX_NEARBY_MILES = float(os.getenv("STORE_LOCATION_MAX_NEARBY_MILES", "15"))
 STORE_PAGE_SIZE = 1000
+TRANSIENT_NETWORK_MARKERS = ("RemoteProtocolError","ReadError","ConnectError","TimeoutException","ConnectionTerminated","Resource temporarily unavailable","Server disconnected")
+MAX_NETWORK_RETRIES = int(os.getenv("STORE_LOCATION_NETWORK_RETRIES", "5"))
+
+def _execute_with_retry(operation, *, label: str):
+    for attempt in range(1, MAX_NETWORK_RETRIES + 1):
+        try:
+            return operation()
+        except Exception as exc:
+            text = f"{type(exc).__name__}: {exc}"
+            transient = any(marker in text for marker in TRANSIENT_NETWORK_MARKERS)
+            if not transient or attempt >= MAX_NETWORK_RETRIES:
+                raise
+            delay = min(0.5 * (2 ** (attempt - 1)), 8.0)
+            logger.warning("Transient Supabase/httpx error during %s (attempt %s/%s): %s; retrying in %.1fs", label, attempt, MAX_NETWORK_RETRIES, exc, delay)
+            time.sleep(delay)
+
 
 # Only aliases that preserve the actual retailer banner are allowed here.
 # These normalize source/version naming differences into the retailer_key
@@ -124,13 +140,14 @@ def _load_retailer_stores(retailer_key: str) -> list[dict[str, Any]]:
     offset = 0
 
     while True:
-        result = (
-            supabase.table("store_locations")
+        result = _execute_with_retry(
+            lambda: supabase.table("store_locations")
             .select("id, retailer_key, zip_code, latitude, longitude")
             .eq("retailer_key", retailer_key)
             .order("id")
             .range(offset, offset + STORE_PAGE_SIZE - 1)
-            .execute()
+            .execute(),
+            label=f"load store_locations retailer={retailer_key} offset={offset}",
         )
         page = result.data or []
         rows.extend(page)
@@ -149,12 +166,13 @@ def _get_zip_centroid(zip_code: str) -> tuple[float, float] | None:
     if cached and now - cached[0] < CACHE_TTL_SECONDS:
         return cached[1]
 
-    result = (
-        supabase.table("zip_centroids")
+    result = _execute_with_retry(
+        lambda: supabase.table("zip_centroids")
         .select("latitude, longitude")
         .eq("zip_code", zip_code)
         .limit(1)
-        .execute()
+        .execute(),
+        label=f"load zip centroid zip={zip_code}",
     )
     rows = result.data or []
     value: tuple[float, float] | None = None
