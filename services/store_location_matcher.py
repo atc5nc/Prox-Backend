@@ -58,7 +58,18 @@ SOURCE_RETAILER_KEY_OVERRIDES: dict[str, str] = {
     "winn_dixie": "winndixie",
     "dollar_general": "dollargeneral",
     "family_dollar": "familydollar",
-    "save_a_lot": "savealot",
+    "gordonfoodservicestore": "gordon_food_service",
+    "lowesfoods": "lowes_foods",
+    "pcccommunitymarkets": "pcc",
+    "99ranchmarket": "99_ranch",
+    "luckysmarket": "lucky_market",
+    "pricerite": "price_rite",
+    "bravosupermarkets": "bravo",
+    "thevitaminshoppe": "vitaminshoppe",
+    "thefreshgrocer": "fresh_grocer",
+    "namdaemunfarmersmarket": "nam_dae_mun",
+    "woodssupermarket": "woods_supermarket",
+    "mothersmarket": "mothers_market",
 }
 
 DISPLAY_NAME_FALLBACKS: dict[str, str] = {
