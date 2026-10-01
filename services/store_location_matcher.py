@@ -106,6 +106,7 @@ DISPLAY_NAME_FALLBACKS: dict[str, str] = {
 }
 
 _store_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+_store_name_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _zip_centroid_cache: dict[str, tuple[float, tuple[float, float] | None]] = {}
 
 
@@ -168,6 +169,52 @@ def _load_retailer_stores(retailer_key: str) -> list[dict[str, Any]]:
 
     _store_cache[retailer_key] = (now, rows)
     logger.info("[STORE_MATCH] loaded %s stores for retailer_key=%s", len(rows), retailer_key)
+    return rows
+
+
+def _load_retailer_stores_by_exact_name(retailer_raw: str) -> list[dict[str, Any]]:
+    """Load stores by exact display name when source/store retailer keys differ.
+
+    This fallback is intentionally banner-safe: it only considers rows whose
+    store_locations.retailer exactly matches the flyer retailer display name
+    case-insensitively. It never falls back to a parent company or fuzzy name.
+    """
+    raw = (retailer_raw or "").strip()
+    if not raw:
+        return []
+
+    cache_key = raw.lower()
+    now = time.monotonic()
+    cached = _store_name_cache.get(cache_key)
+    if cached and now - cached[0] < CACHE_TTL_SECONDS:
+        return cached[1]
+
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        result = _execute_with_retry(
+            lambda: supabase.table("store_locations")
+            .select("id, retailer_key, retailer, zip_code, latitude, longitude")
+            .ilike("retailer", raw)
+            .order("id")
+            .range(offset, offset + STORE_PAGE_SIZE - 1)
+            .execute(),
+            label=f"load store_locations retailer_name={raw} offset={offset}",
+        )
+        page = result.data or []
+        rows.extend(page)
+        if len(page) < STORE_PAGE_SIZE:
+            break
+        offset += STORE_PAGE_SIZE
+
+    _store_name_cache[cache_key] = (now, rows)
+    if rows:
+        logger.info(
+            "[STORE_MATCH] exact-name fallback loaded %s stores for retailer=%s keys=%s",
+            len(rows),
+            raw,
+            sorted({str(row.get("retailer_key") or "") for row in rows}),
+        )
     return rows
 
 
@@ -269,6 +316,12 @@ def find_store_for_deal(
         return StoreMatchResult(None, "none", 0, "missing_retailer_or_zip")
 
     stores = _load_retailer_stores(store_key)
+    used_name_fallback = False
+
+    if not stores and retailer_raw:
+        stores = _load_retailer_stores_by_exact_name(retailer_raw)
+        used_name_fallback = bool(stores)
+
     if not stores:
         return StoreMatchResult(
             None, "none", 0, "retailer_not_loaded", store_retailer_key=store_key
@@ -286,33 +339,36 @@ def find_store_for_deal(
     if exact:
         candidate_ids = [int(s["id"]) for s in exact]
         best_id, distance = _pick_nearest(exact, ref_lat, ref_lng)
+        best_store = next((s for s in exact if int(s["id"]) == best_id), exact[0])
+        result_store_key = str(best_store.get("retailer_key") or store_key)
         if len(exact) == 1:
             return StoreMatchResult(
                 best_id,
                 "zip_single",
                 1,
-                "zip_code",
+                "zip_code_exact_name" if used_name_fallback else "zip_code",
                 [],
                 distance,
-                store_key,
+                result_store_key,
             )
         return StoreMatchResult(
             best_id,
             "zip_multi",
             len(exact),
-            "zip_code",
+            "zip_code_exact_name" if used_name_fallback else "zip_code",
             candidate_ids,
             distance,
-            store_key,
+            result_store_key,
         )
 
     if ref_lat is None or ref_lng is None:
+        fallback_key = str(stores[0].get("retailer_key") or store_key)
         return StoreMatchResult(
             None,
             "none",
             0,
             "zip_centroid_unavailable",
-            store_retailer_key=store_key,
+            store_retailer_key=fallback_key,
         )
 
     radius = MAX_NEARBY_MILES if max_nearby_miles is None else max_nearby_miles
@@ -326,12 +382,13 @@ def find_store_for_deal(
             nearby.append((store, distance))
 
     if not nearby:
+        fallback_key = str(stores[0].get("retailer_key") or store_key)
         return StoreMatchResult(
             None,
             "none",
             0,
             "no_store_within_radius",
-            store_retailer_key=store_key,
+            store_retailer_key=fallback_key,
         )
 
     nearby.sort(key=lambda item: item[1])
@@ -339,19 +396,21 @@ def find_store_for_deal(
     best_store, best_distance = nearby[0]
     confidence = "nearby_single" if len(nearby) == 1 else "nearby_multi"
 
+    result_store_key = str(best_store.get("retailer_key") or store_key)
     return StoreMatchResult(
         int(best_store["id"]),
         confidence,
         len(nearby),
-        "nearest_within_radius",
+        "nearest_within_radius_exact_name" if used_name_fallback else "nearest_within_radius",
         candidate_ids if len(nearby) > 1 else [],
         best_distance,
-        store_key,
+        result_store_key,
     )
 
 
 def get_match_cache_stats() -> dict[str, int]:
     return {
         "retailer_store_caches": len(_store_cache),
+        "retailer_name_caches": len(_store_name_cache),
         "zip_centroid_caches": len(_zip_centroid_cache),
     }
