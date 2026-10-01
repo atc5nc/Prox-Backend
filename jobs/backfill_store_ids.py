@@ -44,14 +44,22 @@ MIN_CHUNK = 1
 TIMEOUT_CODE = "57014"
 TRANSIENT_NETWORK_MARKERS = (
     "RemoteProtocolError",
+    "LocalProtocolError",
     "ReadError",
     "ConnectError",
     "TimeoutException",
     "ConnectionTerminated",
     "Resource temporarily unavailable",
     "Server disconnected",
+    "KeyError",
 )
 MAX_NETWORK_RETRIES = int(os.getenv("STORE_LOCATION_NETWORK_RETRIES", "5"))
+DISABLE_PREFETCH = os.getenv("STORE_LOCATION_DISABLE_PREFETCH", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 
 def _is_transient_network_error(exc: Exception) -> bool:
@@ -269,62 +277,88 @@ def run_backfill(
     if start_id:
         logger.info("Resuming from id > %s", start_id)
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        fetch_future: Future = executor.submit(
-            _fetch_page,
+    def process_page(page: list) -> tuple[int, bool]:
+        nonlocal page_num, total_rows, last_id
+
+        page_num += 1
+        total_rows += len(page)
+        next_last_id = page[-1]["id"]
+        is_last = len(page) < effective_page_size
+
+        logger.info(
+            "Page %s, retailer=%s, fetched=%s after id=%s, total=%s",
+            page_num,
+            retailer_filter or "*",
+            len(page),
             last_id,
-            retailer_filter,
-            only_unmatched,
-            created_after,
-            effective_page_size,
+            total_rows,
         )
 
+        matched_pairs = _process_page(page, stats)
+
+        if matched_pairs:
+            success, errors = _write_batch(matched_pairs, dry_run)
+            stats["matched"] += success
+            stats["errors"] += errors
+            logger.info(
+                "Page %s wrote %s matched rows%s",
+                page_num,
+                success,
+                f", {errors} write errors" if errors else "",
+            )
+
+        last_id = next_last_id
+        return next_last_id, is_last
+
+    if DISABLE_PREFETCH:
+        logger.info("HTTP prefetch disabled; using sequential fetch/process mode")
         while True:
-            page = fetch_future.result()
+            page = _fetch_page(
+                last_id,
+                retailer_filter,
+                only_unmatched,
+                created_after,
+                effective_page_size,
+            )
             if not page:
                 break
 
-            page_num += 1
-            total_rows += len(page)
-            next_last_id = page[-1]["id"]
-            is_last = len(page) < effective_page_size
-
-            logger.info(
-                "Page %s, retailer=%s, fetched=%s after id=%s, total=%s",
-                page_num,
-                retailer_filter or "*",
-                len(page),
-                last_id,
-                total_rows,
-            )
-
-            if not is_last and not (max_pages and page_num >= max_pages):
-                fetch_future = executor.submit(
-                    _fetch_page,
-                    next_last_id,
-                    retailer_filter,
-                    only_unmatched,
-                    created_after,
-                    effective_page_size,
-                )
-
-            matched_pairs = _process_page(page, stats)
-
-            if matched_pairs:
-                success, errors = _write_batch(matched_pairs, dry_run)
-                stats["matched"] += success
-                stats["errors"] += errors
-                logger.info(
-                    "Page %s wrote %s matched rows%s",
-                    page_num,
-                    success,
-                    f", {errors} write errors" if errors else "",
-                )
-
-            last_id = next_last_id
-
+            _, is_last = process_page(page)
             if is_last or (max_pages and page_num >= max_pages):
                 break
+    else:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            fetch_future: Future = executor.submit(
+                _fetch_page,
+                last_id,
+                retailer_filter,
+                only_unmatched,
+                created_after,
+                effective_page_size,
+            )
+
+            while True:
+                page = fetch_future.result()
+                if not page:
+                    break
+
+                next_last_id = page[-1]["id"]
+                is_last = len(page) < effective_page_size
+
+                if not is_last and not (max_pages and page_num + 1 >= max_pages):
+                    fetch_future = executor.submit(
+                        _fetch_page,
+                        next_last_id,
+                        retailer_filter,
+                        only_unmatched,
+                        created_after,
+                        effective_page_size,
+                    )
+
+                _, is_last = process_page(page)
+
+                if is_last or (max_pages and page_num >= max_pages):
+                    break
 
     stats["pages"] = page_num
     stats["last_id"] = last_id
