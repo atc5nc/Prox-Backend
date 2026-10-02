@@ -1000,7 +1000,7 @@ def search_products(
 
     q = (
         sb.table("flyer_deals")
-        .select("canonical_product_name, brand, product_price, retailer, zip_code, match_key, image_link, date_added, created_at")
+        .select("canonical_product_name, brand, category, product_price, retailer, zip_code, match_key, image_link, date_added, created_at")
         .ilike("canonical_product_name", f"%{query}%")
         .not_.is_("product_price", "null")
         .not_.is_("canonical_product_name", "null")
@@ -1036,10 +1036,22 @@ def search_products(
         key        = (normalized, brand_key)
 
         if key not in seen:
-            seen[key] = {"retailers": set(), "prices": [], "match_key": None, "image_link": None,
-                         "raw_canonical": raw_canonical, "raw_brand": brand}
+            seen[key] = {
+                "retailers": set(),
+                "prices": [],
+                "categories": {},
+                "match_key": None,
+                "image_link": None,
+                "raw_canonical": raw_canonical,
+                "raw_brand": brand,
+            }
         seen[key]["retailers"].add(normalize_retailer(retailer_raw))
         seen[key]["prices"].append(float(row["product_price"]))
+        category = (row.get("category") or "").strip()
+        if category:
+            seen[key]["categories"][category] = (
+                seen[key]["categories"].get(category, 0) + 1
+            )
         # Prefer non-null match_key and image_link
         if not seen[key]["match_key"] and row.get("match_key"):
             seen[key]["match_key"] = row["match_key"]
@@ -1060,6 +1072,14 @@ def search_products(
             "avg_price":              round(sum(prices) / len(prices), 2),
             "match_key":              data.get("match_key"),
             "image_link":             data.get("image_link"),
+            "category": (
+                sorted(
+                    data["categories"].items(),
+                    key=lambda item: (-item[1], item[0]),
+                )[0][0]
+                if data["categories"]
+                else None
+            ),
         })
 
     return sorted(results, key=lambda x: x["retailer_count"], reverse=True)[:limit]

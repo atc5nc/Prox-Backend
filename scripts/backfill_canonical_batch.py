@@ -8,6 +8,7 @@ import re
 from config.supabase import get_supabase_client
 from scoring.product_normalizer import extract_brand, build_canonical_name
 from services.cross_retailer_service import _get_kiran_lookup, _kiran_canonical
+from scoring.category_classifier import classify_product
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ def main():
         # Always fetch from offset 0 — processed rows are updated and disappear from query
         res = (
             sb.table("flyer_deals")
-            .select("id, product_name, brand, retailer, base_amount, base_unit")
+            .select("id, product_name, brand, retailer, category, base_amount, base_unit")
             .is_("canonical_product_name", "null")
             .not_.is_("product_name", "null")
             .limit(BATCH)
@@ -62,11 +63,17 @@ def main():
             size_str = str(size) if size is not None else "no_size"
             match_key = f"{brand or ''}|{canonical}|{size_str}"
 
+            category = classify_product(
+                product_name,
+                canonical,
+                existing_category=row.get("category"),
+            )
             to_write.append({
                 "id": row["id"],
                 "canonical_product_name": canonical,
                 "brand": brand,
                 "match_key": match_key,
+                **({"category": category} if category else {}),
             })
 
         if to_write:

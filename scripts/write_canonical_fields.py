@@ -5,6 +5,7 @@ import logging
 from collections import defaultdict
 from config.supabase import get_supabase_client
 from scoring.product_normalizer import make_match_key
+from scoring.category_classifier import classify_product
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ def fetch_batch_with_retry(supabase, offset: int) -> list[dict]:
     for attempt in range(MAX_RETRIES):
         try:
             q = supabase.table("flyer_deals").select(
-                "id, product_name, base_amount, base_unit, brand, canonical_product_name"
+                "id, product_name, base_amount, base_unit, brand, category, canonical_product_name"
             )
             if ONLY_MISSING:
                 q = q.is_("brand", "null").is_("canonical_product_name", "null")
@@ -92,6 +93,13 @@ def main():
                 payload["brand"] = result["brand"]
             if result["canonical_name"]:
                 payload["canonical_product_name"] = result["canonical_name"]
+                category = classify_product(
+                    row.get("product_name"),
+                    result["canonical_name"],
+                    existing_category=row.get("category"),
+                )
+                if category:
+                    payload["category"] = category
             if len(payload) > 1:
                 to_write.append(payload)
             else:
