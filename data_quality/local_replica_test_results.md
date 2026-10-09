@@ -9,8 +9,13 @@ stops/removes that local cluster. No production connection string is read.
 
 - Read-only dry-run query parsed and ran on 8 local fixture rows:
   6 rows in the candidate categories, 4 rows selected by the name guard,
-  4 app-eligible fixture rows, 4 distinct fixture names, 1 fixture retailer,
-  and 2 excluded fixture rows.
+  4 currently app-eligible fixture rows, 4 distinct fixture names, 1 fixture
+  retailer, and 2 excluded fixture rows. Under the agreed cutoff,
+  5 candidates / 3 selected / 3 app-eligible / 2 excluded fixture rows were
+  recent; these local values only validate query behavior.
+- Cutoff boundary assertions passed: a row at `2026-08-25 00:00:00+00` is
+  included and a row one second before is excluded. Local display timezone
+  differs, confirming the explicit UTC `timestamptz` comparison is used.
 - Guard regression: **82** product-name fixtures checked; **66** accepted;
   **16** reviewed conservative/identity exclusions; **0 unexpected
   exclusions**. Seven distinct name variants from the supplied 100-row
@@ -47,7 +52,11 @@ rows, 39,165 selected, 35,852 app-eligible, 571 distinct exact names, 139
 retailers, 440 guard exclusions, 1,473 other-category rows left alone, and
 12,049 already-Pantry rows. Query 1c returned 100 eligible examples (all
 approved Canned Tuna / SEAFOOD rows from Kroger, 32 exact names), not a full
-ID export. These SQL outputs contain no August 25 date filter. The latest
+ID export. These counts are from the pre-cutoff query version. The agreed
+recent-processing definition is now explicitly
+`processed_at >= 2026-08-25 00:00:00+00` (inclusive UTC, no upper bound).
+The updated read-only query reports recent processing separately from
+current app eligibility; cutoff-specific production outputs are pending. The latest
 attachment labeled query 2 repeated the excluded-row sample. A separate
 trigger-catalog result confirms the proposed product-rules trigger is enabled
 for origin sessions and includes category in its UPDATE OF columns. It is

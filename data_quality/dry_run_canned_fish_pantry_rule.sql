@@ -3,8 +3,13 @@
 -- neutralization and exclusions as migration_canned_fish_pantry_rule.sql.
 \pset pager off
 
+-- "Recent" follows the agreed August 25 inclusive lower bound, explicitly UTC.
+-- Current app eligibility remains a separate, non-date-filtered measure.
+with params as (
+  select timestamptz '2026-08-25 00:00:00+00' as processed_cutoff
+),
 -- 1a. Candidate counts by approved identity, current category, and retailer.
-with source_rows as (
+source_rows as (
   select
     id,
     canonical_product_id,
@@ -14,6 +19,7 @@ with source_rows as (
     coalesce(nullif(btrim(retailer_key), ''), nullif(btrim(retailer), ''), '(unknown)') as retailer,
     product_price,
     store_id,
+    processed_at,
     lower(
       regexp_replace(
         regexp_replace(product_name, 'fresh[[:space:]]+thyme[[:space:]]+market', ' ', 'gi'),
@@ -36,21 +42,40 @@ select
   stored_category,
   retailer,
   count(*) as priced_rows,
+  count(*) filter (
+    where category_in_scope
+      and processed_at >= (select processed_cutoff from params)
+  ) as recently_processed_candidates,
   count(*) filter (where category_in_scope and not excluded_by_name_guard) as would_move,
+  count(*) filter (
+    where category_in_scope and not excluded_by_name_guard
+      and processed_at >= (select processed_cutoff from params)
+  ) as recently_processed_would_move,
   count(*) filter (
     where category_in_scope and not excluded_by_name_guard
       and product_price > 0 and store_id is not null
   ) as would_move_app_eligible,
+  count(*) filter (
+    where category_in_scope and not excluded_by_name_guard
+      and processed_at >= (select processed_cutoff from params)
+      and product_price > 0 and store_id is not null
+  ) as recently_processed_app_eligible,
   count(distinct product_name) filter (
     where category_in_scope and not excluded_by_name_guard
   ) as distinct_exact_product_names,
-  count(*) filter (where category_in_scope and excluded_by_name_guard) as excluded_by_name_guard
+  count(*) filter (where category_in_scope and excluded_by_name_guard) as excluded_by_name_guard,
+  count(*) filter (
+    where category_in_scope and excluded_by_name_guard
+      and processed_at >= (select processed_cutoff from params)
+  ) as recently_processed_excluded_by_name_guard
 from classified
 group by canonical_product_name, stored_category, retailer
 order by would_move desc, canonical_product_name, stored_category, retailer;
 
 -- 1b. Exact overall totals. Do not sum per-retailer distinct-name counts.
-with source_rows as (
+with params as (
+  select timestamptz '2026-08-25 00:00:00+00' as processed_cutoff
+), source_rows as (
   select
     id,
     canonical_product_name,
@@ -59,6 +84,7 @@ with source_rows as (
     coalesce(nullif(btrim(retailer_key), ''), nullif(btrim(retailer), ''), '(unknown)') as retailer,
     product_price,
     store_id,
+    processed_at,
     lower(
       regexp_replace(
         regexp_replace(product_name, 'fresh[[:space:]]+thyme[[:space:]]+market', ' ', 'gi'),
@@ -78,25 +104,58 @@ with source_rows as (
 )
 select
   count(*) filter (where category_in_scope) as candidates_before_name_guard,
+  count(*) filter (
+    where category_in_scope
+      and processed_at >= (select processed_cutoff from params)
+  ) as recently_processed_candidates,
   count(*) filter (where category_in_scope and not excluded_by_name_guard) as would_move,
+  count(*) filter (
+    where category_in_scope and not excluded_by_name_guard
+      and processed_at >= (select processed_cutoff from params)
+  ) as recently_processed_would_move,
   count(*) filter (
     where category_in_scope and not excluded_by_name_guard
       and product_price > 0 and store_id is not null
   ) as app_eligible,
+  count(*) filter (
+    where category_in_scope and not excluded_by_name_guard
+      and processed_at >= (select processed_cutoff from params)
+      and product_price > 0 and store_id is not null
+  ) as recently_processed_app_eligible,
   count(distinct product_name) filter (
     where category_in_scope and not excluded_by_name_guard
   ) as distinct_exact_product_names,
+  count(distinct product_name) filter (
+    where category_in_scope and not excluded_by_name_guard
+      and processed_at >= (select processed_cutoff from params)
+  ) as recently_processed_distinct_exact_product_names,
   count(distinct retailer) filter (
     where category_in_scope and not excluded_by_name_guard
   ) as retailers,
+  count(distinct retailer) filter (
+    where category_in_scope and not excluded_by_name_guard
+      and processed_at >= (select processed_cutoff from params)
+  ) as recently_processed_retailers,
   count(*) filter (where category_in_scope and excluded_by_name_guard) as excluded_by_name_guard,
+  count(*) filter (
+    where category_in_scope and excluded_by_name_guard
+      and processed_at >= (select processed_cutoff from params)
+  ) as recently_processed_excluded_by_name_guard,
   count(*) filter (
     where not category_in_scope and stored_category <> 'PANTRY'
   ) as left_alone_other_categories,
+  count(*) filter (
+    where not category_in_scope and stored_category <> 'PANTRY'
+      and processed_at >= (select processed_cutoff from params)
+  ) as recently_processed_left_alone_other_categories,
+  count(*) filter (
+    where stored_category = 'PANTRY'
+      and processed_at >= (select processed_cutoff from params)
+  ) as recently_processed_already_in_pantry,
   count(*) filter (where stored_category = 'PANTRY') as already_in_pantry
 from classified;
 
--- 1c. Stable real IDs/names for isolated-copy replay; first 100 eligible rows.
+-- 1c. Recent app-eligible IDs/names for isolated-copy replay; first 100 rows.
 with source_rows as (
   select
     id,
@@ -107,6 +166,7 @@ with source_rows as (
     coalesce(nullif(btrim(retailer_key), ''), nullif(btrim(retailer), ''), '(unknown)') as retailer,
     product_price,
     store_id,
+    processed_at,
     lower(
       regexp_replace(
         regexp_replace(product_name, 'fresh[[:space:]]+thyme[[:space:]]+market', ' ', 'gi'),
@@ -125,12 +185,13 @@ with source_rows as (
   from source_rows
 )
 select id, canonical_product_id, canonical_product_name, stored_category,
-       product_name, retailer, product_price, store_id
+       product_name, retailer, product_price, store_id, processed_at
 from classified
 where category_in_scope and not excluded_by_name_guard
   and product_price > 0
   and store_id is not null
-order by id
+  and processed_at >= timestamptz '2026-08-25 00:00:00+00'
+order by processed_at desc, id desc
 limit 100;
 
 -- 2. Excluded name-guard examples for reviewer spot-check.

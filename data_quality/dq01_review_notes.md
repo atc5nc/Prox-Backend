@@ -41,6 +41,14 @@ a recent-processing cohort. The SQL contains no August 25 date predicate,
 so these figures are not cutoff-specific. They include 35,852 app-eligible
 selected rows, not 39,165.
 
+**Cutoff semantics are now confirmed from the prior inventory and user
+confirmation:** use `processed_at >= 2026-08-25 00:00:00+00`, inclusive from
+midnight UTC, with no upper bound. “Recently processed” is distinct from
+current app eligibility (`product_price > 0 and store_id is not null`).
+The dry-run SQL has been updated to report both measures separately. The
+counts above remain the prior unfiltered current-row output; rerun queries
+1a/1b/1c from the updated file before publishing cutoff-specific totals.
+
 The exact product-name values in 1a are grouped by canonical identity,
 category, and retailer and must not be summed. Query 1b provides the overall
 deduplicated count of 571 distinct exact product names. The supplied 1c
@@ -93,7 +101,8 @@ rules retain priority.
   have been supplied. Query 1c's sample is all approved Canned Tuna /
   SEAFOOD / Kroger rows, with 32 exact names; all have positive price and a
   non-null store ID. It is suitable as a small example set, not a complete
-  affected-ID export for full replay.
+  affected-ID export for full replay. That sample predates the updated
+  August-25 recent-only filter and must be regenerated.
 - The supplied trigger-catalog result shows `zz_enforce_flyer_deals_product_rules`
   enabled for origin sessions (`tgenabled=O`) on BEFORE INSERT and UPDATE OF
   `brand`, `product_name`, `category`, `canonical_product_id`, and
@@ -124,9 +133,10 @@ rules retain priority.
   DQ-01 product-rules trigger is disabled or bypassed.
 - The local fixture's miniature schema and helper functions are test doubles;
   this is not an integration run on an isolated copy of the real schema.
-- Current dry-run aggregates are user-supplied outputs from queries 1a/1b.
-  These totals are not August-25-cutoff counts because the SQL has no date
-  filter.
+- The currently recorded aggregate counts are from the pre-cutoff version
+  of the dry-run. The updated SQL uses the confirmed inclusive UTC
+  `processed_at` lower bound and reports recent processing and current
+  app-eligibility separately; those cutoff-filtered results are pending.
 - Writer function inspection is partially complete: the three direct
   category-writing routines above have been returned and text-checked for
   bypass markers. Several v27 candidates also update `flyer_deals` identity

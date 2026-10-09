@@ -4,6 +4,34 @@
 \ir migration_canned_fish_pantry_rule.sql
 \ir guard_review_fixture.sql
 
+do $cutoff_assertions$
+begin
+  if not (
+    select processed_at >= timestamptz '2026-08-25 00:00:00+00'
+    from public.flyer_deals where id = 117483543
+  ) then
+    raise exception 'August 25 UTC midnight must be included in the recent cohort';
+  end if;
+  if (
+    select processed_at >= timestamptz '2026-08-25 00:00:00+00'
+    from public.flyer_deals where id = 115826255
+  ) then
+    raise exception 'a timestamp before August 25 UTC midnight must be excluded from the recent cohort';
+  end if;
+  if (
+    select count(*)
+    from public.flyer_deals f
+    where f.id in (117483543, 114271165, 115826255, 115826273)
+      and f.processed_at >= timestamptz '2026-08-25 00:00:00+00'
+      and public.prox_is_misplaced_canned_fish(
+        f.canonical_product_id, f.canonical_product_name, f.product_name, f.category
+      )
+  ) <> 3 then
+    raise exception 'recent cutoff sample count should be 3 of the four fixture candidates';
+  end if;
+end
+$cutoff_assertions$;
+
 -- Bounded canary variables are only for the disposable local fixture.
 \set canary_min_id 114000000
 \set canary_max_id 118000000

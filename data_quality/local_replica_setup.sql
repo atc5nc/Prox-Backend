@@ -30,7 +30,8 @@ create table public.flyer_deals (
   product_price numeric,
   store_id bigint,
   retailer text,
-  retailer_key text
+  retailer_key text,
+  processed_at timestamptz not null default '2026-09-01 00:00:00+00'
 );
 
 create or replace function public.prox_forced_pet_valley_category(
@@ -152,6 +153,14 @@ insert into public.flyer_deals (
    'PANTRY', 'manual_correction', 1, true, false, 'match-chicken', 2.99, 1, 'Whole Foods', 'wholefoodsv2'),
   (114266783, 'Kroger Farm Raised Atlantic Salmon with Spinach and Feta', 'Kroger', 102, 'Salmon',
    'PANTRY', 'ai', 0.7, false, true, 'match-raw-salmon', 9.99, 1, 'Kroger', 'kroger');
+
+update public.flyer_deals
+set processed_at = '2026-08-24 23:59:59+00'
+where id = 115826255;
+
+update public.flyer_deals
+set processed_at = '2026-08-25 00:00:00+00'
+where id = 117483543;
 
 create temporary table dq01_before as
 select id, category, category_source, category_confidence, category_flag,
