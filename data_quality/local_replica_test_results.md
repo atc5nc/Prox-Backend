@@ -29,10 +29,10 @@ stops/removes that local cluster. No production connection string is read.
   showed the product-rules trigger enabled for origin sessions (`tgenabled=O`,
   `tgtype=23`); this is not evidence of production trigger state or order.
 
-This fixture does **not** substitute for the outstanding final production
-read-only dry run, writer/trigger/bypass review, real-schema isolated
-integration replay, or Deals/See All/Cart Finder application-path evidence.
-No production migration, backfill, RPC, or deployment was run.
+This fixture does **not** substitute for the production writer/trigger/bypass
+review, real-schema isolated integration replay, or Deals/See All/Cart Finder
+application-path evidence. No production migration, backfill, RPC, or
+deployment was run.
 
 The user-supplied query-2 excluded-name sample contained 100 rows, all with
 the approved `(27, Canned Tuna)` identity and `SEAFOOD` category, across four
@@ -40,5 +40,13 @@ retailers (Walmart 75, Safeway 13, Whole Foods 8, Albertsons 4). All 100 have
 positive prices and non-null store IDs. The sample has 10 exact product names;
 it is capped row evidence, not the total exclusion count or distinct-product
 count, because store fan-out repeats products. It validates identity and
-eligibility for these sampled excluded rows only. Aggregate outputs for
-queries 1a/1b and complete eligible IDs from query 1c were not included.
+eligibility for these sampled excluded rows only.
+
+Subsequent user-supplied query 1a/1b results report 39,605 candidate-category
+rows, 39,165 selected, 35,852 app-eligible, 571 distinct exact names, 139
+retailers, 440 guard exclusions, 1,473 other-category rows left alone, and
+12,049 already-Pantry rows. Query 1c returned 100 eligible examples (all
+approved Canned Tuna / SEAFOOD rows from Kroger, 32 exact names), not a full
+ID export. These SQL outputs contain no August 25 date filter. The latest
+attachment labeled query 2 repeated the excluded-row sample and did not
+include writer or trigger inspection results.

@@ -9,19 +9,49 @@ key.
 
 ## Candidate counts
 
-The provided first-guard run is candidate evidence, not the final dry run:
-25,756 rows would move, of which 22,616 are app-eligible; 274 were excluded.
-Review recorded 24 deliberate exclusions (prepared tuna products) and 250
-brand-name false negatives, including Fresh Thyme Market (27) and Bowl &
-Basket (12); those brand phrases are neutralized in the current guard.
-Safe Catch Ahi steaks (211) remain excluded conservatively.
+**User-supplied read-only queries 1a and 1b, rerun 2026-10-09.** These queries
+cover priced rows with the exact approved ID/name pairs, and apply the current
+DQ-01 name guard.
 
-The final overall totals (`would move`, app-eligible, distinct exact product
-names, retailers, excluded by guard, and left alone in other categories) are
-not yet populated from the final dry-run queries. Do not infer or add the
-brand-review counts to claim a final total. Current code/output files contain
-an unfinished, over-broad general inventory query; its results are not
-evidence for this scoped DQ-01 count.
+| Metric | Rows / count |
+|---|---:|
+| Candidate-category rows before name guard | 39,605 |
+| Rule-selected rows (`would_move`) | 39,165 |
+| Selected rows meeting app-eligible definition (`product_price > 0` and `store_id is not null`) | 35,852 |
+| Distinct exact product names across selected rows | 571 |
+| Retailers represented among selected rows | 139 |
+| Rows excluded by current name guard | 440 |
+| Rows in other categories left alone | 1,473 |
+| Rows already in Pantry | 12,049 |
+
+Candidate-category breakdown:
+
+| Canonical identity | Stored category | Candidate rows | Would move | App-eligible | Guard excluded |
+|---|---|---:|---:|---:|---:|
+| Canned Tuna (27) | SEAFOOD | 38,632 | 38,192 | 34,898 | 440 |
+| Canned Tuna (27) | BEVERAGES | 515 | 515 | 499 | 0 |
+| Canned Tuna (27) | DESSERT | 178 | 178 | 178 | 0 |
+| Canned Salmon (236) | SEAFOOD | 280 | 280 | 277 | 0 |
+| **Total** |  | **39,605** | **39,165** | **35,852** | **440** |
+
+The 1a row sums reconcile with 1b. These are rule-selected row candidates,
+not a manual verification that every selected row is a true defect. The
+affected rows are cross-retailer (139 retailers) and current priced rows, not
+a recent-processing cohort. The SQL contains no August 25 date predicate,
+so these figures are not cutoff-specific. They include 35,852 app-eligible
+selected rows, not 39,165.
+
+The exact product-name values in 1a are grouped by canonical identity,
+category, and retailer and must not be summed. Query 1b provides the overall
+deduplicated count of 571 distinct exact product names. The supplied 1c
+output contains 100 eligible example rows, all `(27, Canned Tuna)` /
+`SEAFOOD` / `kroger`, with 32 distinct names; it is a LIMIT 100 sample, not
+the complete affected-ID list. The sample is positive-priced and has
+non-null store IDs.
+
+An earlier first-guard run (25,756 would move / 22,616 app-eligible / 274
+excluded) predates these outputs and is historical only; do not mix those
+counts with this run.
 
 ## Rule and exclusions
 
@@ -59,14 +89,19 @@ rules retain priority.
   rows, not the total excluded count or unique-product count; store fan-out
   repeats products. These results validate the canonical ID/name pair and
   app-eligibility for the sampled excluded rows only.
-- The pasted output contains query-2 sample rows, not the aggregate outputs
-  from queries 1a/1b or the full output from query 1c. Final totals and the
-  full eligible-ID sample remain outstanding.
+- Queries 1a/1b aggregate outputs and a 100-row query-1c eligible-ID sample
+  have been supplied. Query 1c's sample is all approved Canned Tuna /
+  SEAFOOD / Kroger rows, with 32 exact names; all have positive price and a
+  non-null store ID. It is suitable as a small example set, not a complete
+  affected-ID export for full replay. The production writer/trigger
+  inspection output remains outstanding; the latest attachment labeled "2"
+  contains the excluded-row sample again, not writer definitions/catalog
+  results.
 - The local fixture's miniature schema and helper functions are test doubles;
   this is not an integration run on an isolated copy of the real schema.
-- First-guard dry-run numbers are from read-only production queries, as
-  reported by the requester. Final dry-run figures remain blank pending
-  rerunning queries 1b/1c with the final guard.
+- Current dry-run aggregates are user-supplied outputs from queries 1a/1b.
+  These totals are not August-25-cutoff counts because the SQL has no date
+  filter.
 - The RPC definition output shows the v2.7 finalizer updates identity and
   match-key fields on `flyer_deals`, not `category`. Writer coverage still
   requires results for `commit_pipeline_enrichment_v1`,

@@ -128,6 +128,8 @@ select id, canonical_product_id, canonical_product_name, stored_category,
        product_name, retailer, product_price, store_id
 from classified
 where category_in_scope and not excluded_by_name_guard
+  and product_price > 0
+  and store_id is not null
 order by id
 limit 100;
 
