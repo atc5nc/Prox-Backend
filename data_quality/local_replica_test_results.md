@@ -48,5 +48,8 @@ retailers, 440 guard exclusions, 1,473 other-category rows left alone, and
 12,049 already-Pantry rows. Query 1c returned 100 eligible examples (all
 approved Canned Tuna / SEAFOOD rows from Kroger, 32 exact names), not a full
 ID export. These SQL outputs contain no August 25 date filter. The latest
-attachment labeled query 2 repeated the excluded-row sample and did not
-include writer or trigger inspection results.
+attachment labeled query 2 repeated the excluded-row sample. A separate
+trigger-catalog result confirms the proposed product-rules trigger is enabled
+for origin sessions and includes category in its UPDATE OF columns. It is
+still not the writer-function definitions or bypass evidence, which remain
+outstanding for production review.

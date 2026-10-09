@@ -47,7 +47,7 @@ order by review_group, proname, identity_args;
 
 -- Trigger attachment and enabled state. 'O' means enabled for origin sessions.
 select
-  row_number() over (order by t.tgname) as before_trigger_order,
+  row_number() over (order by t.tgname) as catalog_display_order,
   t.tgname,
   t.tgenabled,
   t.tgtype,

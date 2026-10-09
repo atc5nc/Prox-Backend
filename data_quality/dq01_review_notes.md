@@ -93,20 +93,29 @@ rules retain priority.
   have been supplied. Query 1c's sample is all approved Canned Tuna /
   SEAFOOD / Kroger rows, with 32 exact names; all have positive price and a
   non-null store ID. It is suitable as a small example set, not a complete
-  affected-ID export for full replay. The production writer/trigger
-  inspection output remains outstanding; the latest attachment labeled "2"
-  contains the excluded-row sample again, not writer definitions/catalog
-  results.
+  affected-ID export for full replay.
+- The supplied trigger-catalog result shows `zz_enforce_flyer_deals_product_rules`
+  enabled for origin sessions (`tgenabled=O`) on BEFORE INSERT and UPDATE OF
+  `brand`, `product_name`, `category`, `canonical_product_id`, and
+  `canonical_product_name`. Thus an update statement setting `category`
+  invokes this trigger. It is listed after other applicable BEFORE triggers
+  and before `zzz_set_match_key_v2`; the catalog output also includes AFTER
+  triggers, so its `row_number` is a name-sorted display order, not a
+  standalone execution-order field. PostgreSQL orders triggers by name among
+  triggers that apply to the same event/timing.
+- The trigger catalog output lists disabled AFTER INSERT notification
+  triggers and enabled retailer/size/match-key triggers. This does not prove
+  writer coverage or absence of bypass: the separate writer-function
+  definitions and `bypass_evidence` result have not been supplied. In
+  particular, results are still needed for
+  `commit_pipeline_enrichment_v1`, `apply_brand_category_ai_batch`,
+  `cleanup_flyer_deals_batch`, `v27_finalize_source_product_incremental`,
+  and any other catalog candidates that write `flyer_deals.category`.
 - The local fixture's miniature schema and helper functions are test doubles;
   this is not an integration run on an isolated copy of the real schema.
 - Current dry-run aggregates are user-supplied outputs from queries 1a/1b.
   These totals are not August-25-cutoff counts because the SQL has no date
   filter.
-- The RPC definition output shows the v2.7 finalizer updates identity and
-  match-key fields on `flyer_deals`, not `category`. Writer coverage still
-  requires results for `commit_pipeline_enrichment_v1`,
-  `apply_brand_category_ai_batch`, and `cleanup_flyer_deals_batch`, plus
-  enabled trigger attachment and bypass review.
 - A real-schema isolated integration replay and app-path checks using actual
   affected IDs have not been completed.
 
