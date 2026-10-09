@@ -51,5 +51,14 @@ ID export. These SQL outputs contain no August 25 date filter. The latest
 attachment labeled query 2 repeated the excluded-row sample. A separate
 trigger-catalog result confirms the proposed product-rules trigger is enabled
 for origin sessions and includes category in its UPDATE OF columns. It is
-still not the writer-function definitions or bypass evidence, which remain
-outstanding for production review.
+complemented by a first-query writer result containing 21 function
+definitions. Three named routines directly write `flyer_deals.category`:
+`commit_pipeline_enrichment_v1`, `apply_brand_category_ai_batch`, and
+`cleanup_flyer_deals_batch`. No searched bypass marker was found in those
+returned bodies; no searched marker appears in the `bypass_evidence` field
+for any of the 21 definitions. This source-text scan is not proof of no
+bypass. Several v27 candidates update identity/match-key columns included in
+the product-rule trigger's `UPDATE OF` list. The requested
+`v27_finalize_source_product_incremental` definition was absent, and its
+replacement/rename status, complete v27 update review, and bypass validation
+beyond text search remain open.

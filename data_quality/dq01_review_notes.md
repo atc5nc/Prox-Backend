@@ -105,17 +105,36 @@ rules retain priority.
   triggers that apply to the same event/timing.
 - The trigger catalog output lists disabled AFTER INSERT notification
   triggers and enabled retailer/size/match-key triggers. This does not prove
-  writer coverage or absence of bypass: the separate writer-function
-  definitions and `bypass_evidence` result have not been supplied. In
-  particular, results are still needed for
-  `commit_pipeline_enrichment_v1`, `apply_brand_category_ai_batch`,
-  `cleanup_flyer_deals_batch`, `v27_finalize_source_product_incremental`,
-  and any other catalog candidates that write `flyer_deals.category`.
+  writer coverage by itself.
+- The supplied first result set from `writers_check.sql` returned 21
+  definitions (3 explicitly requested writers and 18 catalog candidates).
+  The explicitly named bodies show direct `flyer_deals.category` writes in
+  `commit_pipeline_enrichment_v1`, `apply_brand_category_ai_batch`, and
+  `cleanup_flyer_deals_batch`. The returned `bypass_evidence` field for all
+  21 definitions says no searched marker was found
+  (`session_replication_role`, `DISABLE TRIGGER`, or `ENABLE TRIGGER`); this
+  is source-text evidence only, not proof that a session, caller, dynamic
+  SQL, or another function cannot bypass triggers.
+- The requested
+  `v27_finalize_source_product_incremental(...)` definition is not in the
+  21 returned definitions. Returned v27 pipeline candidates include
+  identity/finalization functions that update `flyer_deals`; their definitions
+  must be reviewed for exact update columns and trigger interactions. Any
+  `app.bulk_match_key_migration` setting is not itself evidence that the
+  DQ-01 product-rules trigger is disabled or bypassed.
 - The local fixture's miniature schema and helper functions are test doubles;
   this is not an integration run on an isolated copy of the real schema.
 - Current dry-run aggregates are user-supplied outputs from queries 1a/1b.
   These totals are not August-25-cutoff counts because the SQL has no date
   filter.
+- Writer function inspection is partially complete: the three direct
+  category-writing routines above have been returned and text-checked for
+  bypass markers. Several v27 candidates also update `flyer_deals` identity
+  and match-key columns, which are in the product-rule trigger's `UPDATE OF`
+  list and can therefore invoke the rule. Need the missing v27 finalizer
+  definition (or confirmation it was renamed/removed), a complete review of
+  relevant v27 update statements, and bypass validation beyond a simple
+  source-text marker search.
 - A real-schema isolated integration replay and app-path checks using actual
   affected IDs have not been completed.
 
