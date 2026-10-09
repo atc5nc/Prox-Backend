@@ -9,57 +9,51 @@ key.
 
 ## Candidate counts
 
-**User-supplied read-only queries 1a and 1b, rerun 2026-10-09.** These queries
-cover priced rows with the exact approved ID/name pairs, and apply the current
-DQ-01 name guard.
+**User-supplied read-only queries 1a and 1b with cutoff, rerun 2026-10-09.**
+These queries cover priced rows with exact approved ID/name pairs and apply
+the current DQ-01 name guard. Recent means
+`processed_at >= 2026-08-25 00:00:00+00` (inclusive UTC, no upper bound).
 
 | Metric | Rows / count |
 |---|---:|
-| Candidate-category rows before name guard | 39,605 |
-| Rule-selected rows (`would_move`) | 39,165 |
-| Selected rows meeting app-eligible definition (`product_price > 0` and `store_id is not null`) | 35,852 |
+| Candidate-category rows before name guard | 39,606 |
+| Candidate rows processed on/after cutoff | 39,606 |
+| Rule-selected rows (`would_move`) | 39,166 |
+| Selected rows processed on/after cutoff | 39,166 |
+| Selected rows currently app-eligible (`product_price > 0` and `store_id is not null`) | 35,853 |
+| Selected rows both recent and currently app-eligible | 35,853 |
 | Distinct exact product names across selected rows | 571 |
 | Retailers represented among selected rows | 139 |
 | Rows excluded by current name guard | 440 |
+| Excluded rows processed on/after cutoff | 440 |
 | Rows in other categories left alone | 1,473 |
 | Rows already in Pantry | 12,049 |
 
 Candidate-category breakdown:
 
-| Canonical identity | Stored category | Candidate rows | Would move | App-eligible | Guard excluded |
-|---|---|---:|---:|---:|---:|
-| Canned Tuna (27) | SEAFOOD | 38,632 | 38,192 | 34,898 | 440 |
-| Canned Tuna (27) | BEVERAGES | 515 | 515 | 499 | 0 |
-| Canned Tuna (27) | DESSERT | 178 | 178 | 178 | 0 |
-| Canned Salmon (236) | SEAFOOD | 280 | 280 | 277 | 0 |
-| **Total** |  | **39,605** | **39,165** | **35,852** | **440** |
+| Canonical identity | Stored category | Candidate rows | Recent candidates | Would move | Recent would move | Current app-eligible | Recent and app-eligible | Guard excluded |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| Canned Tuna (27) | SEAFOOD | 38,633 | 38,633 | 38,193 | 38,193 | 34,899 | 34,899 | 440 |
+| Canned Tuna (27) | BEVERAGES | 515 | 515 | 515 | 515 | 499 | 499 | 0 |
+| Canned Tuna (27) | DESSERT | 178 | 178 | 178 | 178 | 178 | 178 | 0 |
+| Canned Salmon (236) | SEAFOOD | 280 | 280 | 280 | 280 | 277 | 277 | 0 |
+| **Total** |  | **39,606** | **39,606** | **39,166** | **39,166** | **35,853** | **35,853** | **440** |
 
-The 1a row sums reconcile with 1b. These are rule-selected row candidates,
-not a manual verification that every selected row is a true defect. The
-affected rows are cross-retailer (139 retailers) and current priced rows, not
-a recent-processing cohort. The SQL contains no August 25 date predicate,
-so these figures are not cutoff-specific. They include 35,852 app-eligible
-selected rows, not 39,165.
+The 1a row sums reconcile with 1b. All candidate rows in this output were
+processed on/after the agreed August 25 UTC cutoff. App eligibility remains a
+separate current-state measure; only 35,853 of the 39,166 selected rows meet
+the stated price/store condition. These are rule-selected row candidates,
+not manual verification that every selected row is a true defect.
 
-**Cutoff semantics are now confirmed from the prior inventory and user
-confirmation:** use `processed_at >= 2026-08-25 00:00:00+00`, inclusive from
-midnight UTC, with no upper bound. “Recently processed” is distinct from
-current app eligibility (`product_price > 0 and store_id is not null`).
-The dry-run SQL has been updated to report both measures separately. The
-counts above remain the prior unfiltered current-row output; rerun queries
-1a/1b/1c from the updated file before publishing cutoff-specific totals.
+The supplied 1c sample has 100 unique recent, app-eligible IDs: 99 Canned
+Tuna and 1 Canned Salmon, all in SEAFOOD, across six retailers (ALDI 19,
+Costco 13, Sam's Club 4, Smart & Final 11, Target 48, Walgreens 5), with 43
+exact names. Timestamps range from Oct 8 03:22 to 03:43 UTC. It is a LIMIT
+100 sample, not the complete 39,166 selected row IDs.
 
-The exact product-name values in 1a are grouped by canonical identity,
-category, and retailer and must not be summed. Query 1b provides the overall
-deduplicated count of 571 distinct exact product names. The supplied 1c
-output contains 100 eligible example rows, all `(27, Canned Tuna)` /
-`SEAFOOD` / `kroger`, with 32 distinct names; it is a LIMIT 100 sample, not
-the complete affected-ID list. The sample is positive-priced and has
-non-null store IDs.
-
-An earlier first-guard run (25,756 would move / 22,616 app-eligible / 274
-excluded) predates these outputs and is historical only; do not mix those
-counts with this run.
+Earlier unfiltered counts (39,165 selected / 35,852 app-eligible) and the
+first-guard run (25,756 selected / 22,616 app-eligible / 274 excluded) are
+historical only and superseded by this cutoff-filtered output.
 
 ## Rule and exclusions
 
@@ -97,12 +91,9 @@ rules retain priority.
   rows, not the total excluded count or unique-product count; store fan-out
   repeats products. These results validate the canonical ID/name pair and
   app-eligibility for the sampled excluded rows only.
-- Queries 1a/1b aggregate outputs and a 100-row query-1c eligible-ID sample
-  have been supplied. Query 1c's sample is all approved Canned Tuna /
-  SEAFOOD / Kroger rows, with 32 exact names; all have positive price and a
-  non-null store ID. It is suitable as a small example set, not a complete
-  affected-ID export for full replay. That sample predates the updated
-  August-25 recent-only filter and must be regenerated.
+- Cutoff-filtered queries 1a/1b and a 100-row query-1c recent eligible-ID
+  sample have been supplied. Query 1c is an example subset, not the complete
+  affected-ID export for full replay.
 - The supplied trigger-catalog result shows `zz_enforce_flyer_deals_product_rules`
   enabled for origin sessions (`tgenabled=O`) on BEFORE INSERT and UPDATE OF
   `brand`, `product_name`, `category`, `canonical_product_id`, and
@@ -133,10 +124,9 @@ rules retain priority.
   DQ-01 product-rules trigger is disabled or bypassed.
 - The local fixture's miniature schema and helper functions are test doubles;
   this is not an integration run on an isolated copy of the real schema.
-- The currently recorded aggregate counts are from the pre-cutoff version
-  of the dry-run. The updated SQL uses the confirmed inclusive UTC
-  `processed_at` lower bound and reports recent processing and current
-  app-eligibility separately; those cutoff-filtered results are pending.
+- Current aggregate counts use the confirmed inclusive UTC `processed_at`
+  lower bound and report recent processing separately from current
+  app-eligibility.
 - Writer function inspection is partially complete: the three direct
   category-writing routines above have been returned and text-checked for
   bypass markers. Several v27 candidates also update `flyer_deals` identity

@@ -47,16 +47,14 @@ it is capped row evidence, not the total exclusion count or distinct-product
 count, because store fan-out repeats products. It validates identity and
 eligibility for these sampled excluded rows only.
 
-Subsequent user-supplied query 1a/1b results report 39,605 candidate-category
-rows, 39,165 selected, 35,852 app-eligible, 571 distinct exact names, 139
-retailers, 440 guard exclusions, 1,473 other-category rows left alone, and
-12,049 already-Pantry rows. Query 1c returned 100 eligible examples (all
-approved Canned Tuna / SEAFOOD rows from Kroger, 32 exact names), not a full
-ID export. These counts are from the pre-cutoff query version. The agreed
-recent-processing definition is now explicitly
-`processed_at >= 2026-08-25 00:00:00+00` (inclusive UTC, no upper bound).
-The updated read-only query reports recent processing separately from
-current app eligibility; cutoff-specific production outputs are pending. The latest
+Subsequent user-supplied query 1a/1b results using
+`processed_at >= 2026-08-25 00:00:00+00` report 39,606 candidate-category
+rows, all recent; 39,166 selected, all recent; 35,853 currently app-eligible,
+all also recent; 571 distinct exact names; 139 retailers; 440 guard
+exclusions; 1,473 other-category rows left alone; and 12,049 already-Pantry
+rows. Query 1c returned 100 unique recent app-eligible examples, 99 Canned
+Tuna and 1 Canned Salmon, across six retailers, with 43 exact product names.
+This is not the complete ID set. The latest
 attachment labeled query 2 repeated the excluded-row sample. A separate
 trigger-catalog result confirms the proposed product-rules trigger is enabled
 for origin sessions and includes category in its UPDATE OF columns. It is
