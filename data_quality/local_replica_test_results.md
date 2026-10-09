@@ -34,9 +34,11 @@ read-only dry run, writer/trigger/bypass review, real-schema isolated
 integration replay, or Deals/See All/Cart Finder application-path evidence.
 No production migration, backfill, RPC, or deployment was run.
 
-The user-supplied excluded-name sample contained 100 rows, all labeled
-`Canned Tuna` / `SEAFOOD`, and 10 exact name strings. It is capped evidence
-from an exclusion query, not the total excluded count, distinct-product
-count, or proof of ID/name-pair matching; the shared rows did not include
-canonical IDs or retailer/store/price fields. The read-only sample query now
-returns those fields for reviewer validation.
+The user-supplied query-2 excluded-name sample contained 100 rows, all with
+the approved `(27, Canned Tuna)` identity and `SEAFOOD` category, across four
+retailers (Walmart 75, Safeway 13, Whole Foods 8, Albertsons 4). All 100 have
+positive prices and non-null store IDs. The sample has 10 exact product names;
+it is capped row evidence, not the total exclusion count or distinct-product
+count, because store fan-out repeats products. It validates identity and
+eligibility for these sampled excluded rows only. Aggregate outputs for
+queries 1a/1b and complete eligible IDs from query 1c were not included.
