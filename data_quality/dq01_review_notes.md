@@ -42,11 +42,21 @@ rules retain priority.
   It exercises the proposed migration, bounded canary backfill, simulated
   subsequent category writer, identity/match-key preservation, and the
   documented trigger-first/data-second rollback sequence.
-- The 75-name local fixture currently returns 66 eligible names and 9
-  reviewed exclusions, with assertions that the excluded names are exactly
-  the reviewed sushi/salad/bowl/steak cases. Additional assertions reject
-  mismatched or missing canonical id/name pairs. This is a fixture
-  regression, not a production-data false-positive rate.
+- The 82-name local fixture returns 66 eligible names and 16 reviewed
+  exclusions, with assertions that the excluded names are exactly the
+  reviewed sushi/salad/bowl/steak/fresh-fish cases. Seven distinct name
+  variants from the newly supplied 100-row exclusion sample were added to
+  exercise prepared tuna bowls/poke, salad rolls, and fresh tuna. Additional
+  assertions reject mismatched or missing canonical id/name pairs. This is a
+  fixture regression, not a production-data false-positive rate.
+- The supplied exclusion sample contains 100 rows, all labeled `Canned Tuna`
+  and `SEAFOOD`, across 10 exact product-name strings: poke (24 rows), Genova
+  tuna bowls (42), StarKist Smart Bowls (9), Zenshi poke bowl (8), tuna rolls
+  (15), and fresh tuna (2). This is a capped sample of excluded rows, not the
+  total excluded count or a unique-product count; fan-out may repeat products.
+  The pasted output omits `canonical_product_id` and retailer/store/price
+  fields, so it does not independently establish ID/name matching or app
+  eligibility.
 - The local fixture's miniature schema and helper functions are test doubles;
   this is not an integration run on an isolated copy of the real schema.
 - First-guard dry-run numbers are from read-only production queries, as

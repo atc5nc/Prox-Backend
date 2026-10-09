@@ -87,7 +87,14 @@ insert into dq01_guard_names(canonical, name, category) values
 ('Canned Tuna','Marukome Spicy Tuna Volcano Roll','SEAFOOD'),
 ('Canned Tuna','Genova Mediterranean Lentil & Grain Tuna Bowl','SEAFOOD'),
 ('Canned Tuna','Bumble Bee Salad Kit, Tuna, Special Value, 6 Pack','SEAFOOD'),
-('Canned Tuna','Albacore Tuna Avocado Roll, 7 OZ','SEAFOOD');
+('Canned Tuna','Albacore Tuna Avocado Roll, 7 OZ','SEAFOOD'),
+('Canned Tuna','Natural Blue Ahi Tuna Poke, with Sauce','SEAFOOD'),
+('Canned Tuna','StarKist Smart Bowls Tomato Basil Tuna with Barley and Bean Pouch','SEAFOOD'),
+('Canned Tuna','Zenshi Big Wave Poke Albacore Salmon Tuna Bowl','SEAFOOD'),
+('Canned Tuna','Afc Franchise Corp. Spicy Tuna & Ca Salad Roll','SEAFOOD'),
+('Canned Tuna','Fresh Albacore Tuna Loin','SEAFOOD'),
+('Canned Tuna','Fresh Albacore Tahitian Tombo Tuna','SEAFOOD'),
+('Canned Tuna','AFC Tuna Hawwaiian Roll','SEAFOOD');
 
 do $assertions$
 declare
@@ -105,8 +112,8 @@ begin
   into v_total, v_move, v_excluded
   from dq01_guard_names;
 
-  if v_total <> 75 or v_move <> 66 or v_excluded <> 9 then
-    raise exception 'guard regression changed: total %, move %, excluded %; expected 75/66/9',
+  if v_total <> 82 or v_move <> 66 or v_excluded <> 16 then
+    raise exception 'guard regression changed: total %, move %, excluded %; expected 82/66/16',
       v_total, v_move, v_excluded;
   end if;
 
@@ -123,7 +130,14 @@ begin
         'Marukome Spicy Tuna Volcano Roll',
         'Genova Mediterranean Lentil & Grain Tuna Bowl',
         'Bumble Bee Salad Kit, Tuna, Special Value, 6 Pack',
-        'Albacore Tuna Avocado Roll, 7 OZ'
+        'Albacore Tuna Avocado Roll, 7 OZ',
+        'Natural Blue Ahi Tuna Poke, with Sauce',
+        'StarKist Smart Bowls Tomato Basil Tuna with Barley and Bean Pouch',
+        'Zenshi Big Wave Poke Albacore Salmon Tuna Bowl',
+        'Afc Franchise Corp. Spicy Tuna & Ca Salad Roll',
+        'Fresh Albacore Tuna Loin',
+        'Fresh Albacore Tahitian Tombo Tuna',
+        'AFC Tuna Hawwaiian Roll'
       )
   ) then
     raise exception 'name guard excluded an unreviewed product in the 75-name fixture';
@@ -142,10 +156,17 @@ begin
         'Marukome Spicy Tuna Volcano Roll',
         'Genova Mediterranean Lentil & Grain Tuna Bowl',
         'Bumble Bee Salad Kit, Tuna, Special Value, 6 Pack',
-        'Albacore Tuna Avocado Roll, 7 OZ'
+        'Albacore Tuna Avocado Roll, 7 OZ',
+        'Natural Blue Ahi Tuna Poke, with Sauce',
+        'StarKist Smart Bowls Tomato Basil Tuna with Barley and Bean Pouch',
+        'Zenshi Big Wave Poke Albacore Salmon Tuna Bowl',
+        'Afc Franchise Corp. Spicy Tuna & Ca Salad Roll',
+        'Fresh Albacore Tuna Loin',
+        'Fresh Albacore Tahitian Tombo Tuna',
+        'AFC Tuna Hawwaiian Roll'
       )
-  ) <> 9 then
-    raise exception 'name guard did not exclude all nine reviewed conservative/identity cases';
+  ) <> 16 then
+    raise exception 'name guard did not exclude all sixteen reviewed conservative/identity cases';
   end if;
 
   raise notice 'DQ-01 product-name fixture: % checked, % eligible, % reviewed exclusions, 0 unexpected exclusions',

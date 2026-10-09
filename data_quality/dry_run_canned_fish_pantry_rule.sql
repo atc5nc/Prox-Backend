@@ -134,8 +134,11 @@ limit 100;
 -- 2. Excluded name-guard examples for reviewer spot-check.
 with source_rows as (
   select
-    id, canonical_product_name, product_name,
+    id, canonical_product_id, canonical_product_name, product_name,
     upper(btrim(coalesce(category, ''))) as stored_category,
+    coalesce(nullif(btrim(retailer_key), ''), nullif(btrim(retailer), ''), '(unknown)') as retailer,
+    product_price,
+    store_id,
     lower(
       regexp_replace(
         regexp_replace(product_name, 'fresh[[:space:]]+thyme[[:space:]]+market', ' ', 'gi'),
@@ -149,7 +152,8 @@ with source_rows as (
     and product_price is not null
     and upper(btrim(coalesce(category, ''))) in ('SEAFOOD', 'BEVERAGES', 'DESSERT')
 )
-select id, canonical_product_name, stored_category, product_name
+select id, canonical_product_id, canonical_product_name, stored_category,
+       product_name, retailer, product_price, store_id
 from source_rows
 where normalized_name ~ '(^|[^[:alnum:]])(rolls?|nigiri|sushi|poke|salads?|sandwiches?|croissants?|baguettes?|bowls?|steaks?|frozen|fresh|raw|cats?|dogs?|pets?|kittens?)([^[:alnum:]]|$)'
 order by id
