@@ -31,6 +31,13 @@ create table public.flyer_deals (
   store_id bigint,
   retailer text,
   retailer_key text,
+  source_product_id bigint,
+  match_key_version integer,
+  zip_code text,
+  created_at timestamptz not null default now(),
+  base_amount numeric,
+  base_unit text,
+  product_size text,
   processed_at timestamptz not null default '2026-09-01 00:00:00+00'
 );
 
@@ -129,30 +136,40 @@ end;
 $function$;
 
 create trigger zz_enforce_flyer_deals_product_rules
-before insert or update on public.flyer_deals
+before insert or update of brand, product_name, category, canonical_product_id,
+  canonical_product_name on public.flyer_deals
 for each row execute function public.enforce_flyer_deals_product_rules();
 
 insert into public.flyer_deals (
   id, product_name, brand, canonical_product_id, canonical_product_name,
   category, category_source, category_confidence, category_flag,
-  category_conflicts, match_key, product_price, store_id, retailer, retailer_key
+  category_conflicts, match_key, product_price, store_id, retailer, retailer_key,
+  zip_code, base_amount, base_unit, product_size
 ) values
   (117483543, 'StarKist Tuna, Chunk Light', 'StarKist', 27, 'Canned Tuna',
-   'SEAFOOD', 'ai', 0.78, false, true, 'match-tuna-1', 1.99, 1, 'Whole Foods', 'wholefoodsv2'),
+   'SEAFOOD', 'ai', 0.78, false, true, 'match-tuna-1', 1.99, 1, 'Whole Foods', 'wholefoodsv2',
+   '94103', 5, 'oz', '5 oz'),
   (114271165, 'Chicken Of The Sea Wild Caught Alaskan Pink Salmon Pouch', 'Chicken of the Sea', 236, 'Canned Salmon',
-   'SEAFOOD', 'ai', 0.80, false, true, 'match-salmon-1', 2.99, 1, 'Whole Foods', 'wholefoodsv2'),
+   'SEAFOOD', 'ai', 0.80, false, true, 'match-salmon-1', 2.99, 1, 'Whole Foods', 'wholefoodsv2',
+   '94103', 5, 'oz', '5 oz'),
   (115826255, 'Yellowfin Tuna Fillets in Spring Water', 'Brand', 27, 'Canned Tuna',
-   'BEVERAGES', 'ai', 0.75, false, true, 'match-tuna-2', 3.99, 1, 'Whole Foods', 'wholefoodsv2'),
+   'BEVERAGES', 'ai', 0.75, false, true, 'match-tuna-2', 3.99, 1, 'Whole Foods', 'wholefoodsv2',
+   '94103', 5, 'oz', '5 oz'),
   (115826273, 'Yellowfin Tuna in Truffle Infused Olive Oil', 'Brand', 27, 'Canned Tuna',
-   'DESSERT', 'ai', 0.75, false, true, 'match-tuna-3', 5.99, 1, 'Whole Foods', 'wholefoodsv2'),
+   'DESSERT', 'ai', 0.75, false, true, 'match-tuna-3', 5.99, 1, 'Whole Foods', 'wholefoodsv2',
+   '94103', 5, 'oz', '5 oz'),
   (120247137, 'Zenshi Private Selection Rainbow Roll - Salmon Tuna', 'Brand', 27, 'Canned Tuna',
-   'SEAFOOD', 'ai', 0.75, false, true, 'match-sushi', 8.99, 1, 'Whole Foods', 'wholefoodsv2'),
+   'SEAFOOD', 'ai', 0.75, false, true, 'match-sushi', 8.99, 1, 'Whole Foods', 'wholefoodsv2',
+   '94103', 5, 'oz', '5 oz'),
   (114206707, 'Fancy Feast Tuna Cat Food', 'Fancy Feast', 27, 'Canned Tuna',
-   'SEAFOOD', 'ai', 0.75, false, true, 'match-catfood', 1.29, 1, 'Whole Foods', 'wholefoodsv2'),
+   'SEAFOOD', 'ai', 0.75, false, true, 'match-catfood', 1.29, 1, 'Whole Foods', 'wholefoodsv2',
+   '94103', 5, 'oz', '5 oz'),
   (114226422, 'Swanson Canned Chicken Breast In Water', 'Swanson', 345, 'Canned Chicken',
-   'PANTRY', 'manual_correction', 1, true, false, 'match-chicken', 2.99, 1, 'Whole Foods', 'wholefoodsv2'),
+   'PANTRY', 'manual_correction', 1, true, false, 'match-chicken', 2.99, 1, 'Whole Foods', 'wholefoodsv2',
+   '94103', 5, 'oz', '5 oz'),
   (114266783, 'Kroger Farm Raised Atlantic Salmon with Spinach and Feta', 'Kroger', 102, 'Salmon',
-   'PANTRY', 'ai', 0.7, false, true, 'match-raw-salmon', 9.99, 1, 'Kroger', 'kroger');
+   'PANTRY', 'ai', 0.7, false, true, 'match-raw-salmon', 9.99, 1, 'Kroger', 'kroger',
+   '94103', 5, 'oz', '5 oz');
 
 update public.flyer_deals
 set processed_at = '2026-08-24 23:59:59+00'

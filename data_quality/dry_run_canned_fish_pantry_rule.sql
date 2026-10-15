@@ -4,7 +4,8 @@
 \pset pager off
 
 -- "Recent" follows the agreed August 25 inclusive lower bound, explicitly UTC.
--- Current app eligibility remains a separate, non-date-filtered measure.
+-- Positive price + non-null store_id is a current-state proxy, not verified app
+-- eligibility; actual app queries may apply different filters.
 with params as (
   select timestamptz '2026-08-25 00:00:00+00' as processed_cutoff
 ),
@@ -54,12 +55,12 @@ select
   count(*) filter (
     where category_in_scope and not excluded_by_name_guard
       and product_price > 0 and store_id is not null
-  ) as would_move_app_eligible,
+  ) as would_move_positive_price_with_store_id,
   count(*) filter (
     where category_in_scope and not excluded_by_name_guard
       and processed_at >= (select processed_cutoff from params)
       and product_price > 0 and store_id is not null
-  ) as recently_processed_app_eligible,
+  ) as recently_processed_positive_price_with_store_id,
   count(distinct product_name) filter (
     where category_in_scope and not excluded_by_name_guard
   ) as distinct_exact_product_names,
@@ -116,12 +117,12 @@ select
   count(*) filter (
     where category_in_scope and not excluded_by_name_guard
       and product_price > 0 and store_id is not null
-  ) as app_eligible,
+  ) as positive_price_with_store_id,
   count(*) filter (
     where category_in_scope and not excluded_by_name_guard
       and processed_at >= (select processed_cutoff from params)
       and product_price > 0 and store_id is not null
-  ) as recently_processed_app_eligible,
+  ) as recently_processed_positive_price_with_store_id,
   count(distinct product_name) filter (
     where category_in_scope and not excluded_by_name_guard
   ) as distinct_exact_product_names,
@@ -155,7 +156,8 @@ select
   count(*) filter (where stored_category = 'PANTRY') as already_in_pantry
 from classified;
 
--- 1c. Recent app-eligible IDs/names for isolated-copy replay; first 100 rows.
+-- 1c. Recent IDs/names with positive price and store_id for isolated-copy
+-- replay; first 100 rows. This is not a complete app-eligibility predicate.
 with source_rows as (
   select
     id,

@@ -1,3 +1,14 @@
+-- Explicit finalizer lookup. The broad discovery query below targets direct
+-- category writers and therefore is not expected to return this function.
+select
+  pg_get_function_identity_arguments(p.oid) as identity_args,
+  pg_get_functiondef(p.oid) as definition
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname = 'v27_finalize_source_product_incremental'
+  and pg_get_function_identity_arguments(p.oid) = 'p_source_product_id bigint';
+
 -- Read-only review of public SQL functions that may write category to flyer_deals.
 -- Inspect returned definitions and bypass_evidence before treating coverage as complete.
 \pset pager off

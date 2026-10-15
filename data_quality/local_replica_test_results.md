@@ -9,9 +9,9 @@ stops/removes that local cluster. No production connection string is read.
 
 - Read-only dry-run query parsed and ran on 8 local fixture rows:
   6 rows in the candidate categories, 4 rows selected by the name guard,
-  4 currently app-eligible fixture rows, 4 distinct fixture names, 1 fixture
+  4 rows meeting the positive-price/non-null-store proxy, 4 distinct fixture names, 1 fixture
   retailer, and 2 excluded fixture rows. Under the agreed cutoff,
-  5 candidates / 3 selected / 3 app-eligible / 2 excluded fixture rows were
+  5 candidates / 3 selected / 3 proxy rows / 2 excluded fixture rows were
   recent; these local values only validate query behavior.
 - Cutoff boundary assertions passed: a row at `2026-08-25 00:00:00+00` is
   included and a row one second before is excluded. Local display timezone
@@ -27,6 +27,17 @@ stops/removes that local cluster. No production connection string is read.
   assertions verified unchanged.
 - A simulated subsequent category write to `SEAFOOD` was corrected back to
   `PANTRY` by the trigger.
+- The test then invoked the saved body of
+  `v27_finalize_source_product_incremental` for one eligible canned-tuna row
+  and one excluded sushi row. Both calls returned `status=finalized`; the
+  eligible row retained `PANTRY` while its v3 match key and search projection
+  were produced. The excluded sushi row remained `SEAFOOD`.
+  `v2_upsert_source_search_shadow_v27_range` is a deterministic fixture stub;
+  the classifier RPC and production helper implementations were not run.
+- The fixture also checked the Deals browse query's ZIP and non-null-price
+  predicate: it sees the affected item as `PANTRY` and the excluded sushi item
+  as `SEAFOOD`. This SQL assertion mirrors the fetch predicate; it is not a
+  run of the mobile app or a test of the rendered UI.
 - Rollback test restored the old trigger function first, then restored the
   four captured category/metadata values.
 - Writer and compatible-category catalog queries parsed locally. Their empty
@@ -35,8 +46,8 @@ stops/removes that local cluster. No production connection string is read.
   `tgtype=23`); this is not evidence of production trigger state or order.
 
 This fixture does **not** substitute for the production writer/trigger/bypass
-review, real-schema isolated integration replay, or Deals/See All/Cart Finder
-application-path evidence. No production migration, backfill, RPC, or
+review, real-schema isolated integration replay, or app-path evidence using
+actual affected IDs. No production migration, backfill, classifier RPC, or
 deployment was run.
 
 The user-supplied query-2 excluded-name sample contained 100 rows, all with
@@ -44,15 +55,17 @@ the approved `(27, Canned Tuna)` identity and `SEAFOOD` category, across four
 retailers (Walmart 75, Safeway 13, Whole Foods 8, Albertsons 4). All 100 have
 positive prices and non-null store IDs. The sample has 10 exact product names;
 it is capped row evidence, not the total exclusion count or distinct-product
-count, because store fan-out repeats products. It validates identity and
-eligibility for these sampled excluded rows only.
+count, because store fan-out repeats products. It validates identity and the
+price/store proxy for these sampled excluded rows only, not full app
+eligibility.
 
 Subsequent user-supplied query 1a/1b results using
 `processed_at >= 2026-08-25 00:00:00+00` report 39,606 candidate-category
-rows, all recent; 39,166 selected, all recent; 35,853 currently app-eligible,
-all also recent; 571 distinct exact names; 139 retailers; 440 guard
+rows, all recent; 39,166 selected, all recent; 35,853 rows with positive
+price and non-null `store_id` (a current-state proxy, not verified app
+eligibility), all also recent; 571 distinct exact names; 139 retailers; 440 guard
 exclusions; 1,473 other-category rows left alone; and 12,049 already-Pantry
-rows. Query 1c returned 100 unique recent app-eligible examples, 99 Canned
+rows. Query 1c returned 100 unique recent examples meeting that proxy, 99 Canned
 Tuna and 1 Canned Salmon, across six retailers, with 43 exact product names.
 This is not the complete ID set. The latest
 attachment labeled query 2 repeated the excluded-row sample. A separate
@@ -65,7 +78,18 @@ definitions. Three named routines directly write `flyer_deals.category`:
 returned bodies; no searched marker appears in the `bypass_evidence` field
 for any of the 21 definitions. This source-text scan is not proof of no
 bypass. Several v27 candidates update identity/match-key columns included in
-the product-rule trigger's `UPDATE OF` list. The requested
-`v27_finalize_source_product_incremental` definition was absent, and its
-replacement/rename status, complete v27 update review, and bypass validation
-beyond text search remain open.
+the product-rule trigger's `UPDATE OF` list.
+
+The exact-name finalizer definition was explicitly retrieved earlier and
+saved in the inventory worktree's `data_quality/v27_finalize.txt`. The local
+fixture now replays that function body with fixture-only table definitions
+and a stub range-upsert helper. This does not establish that the saved
+definition or helper DDL still matches the current database; the exact-name
+read-only query is now first in `writers_check.sql`.
+
+The Deals browse fetch in `mobile_app/src/pages/deals/fetchFlyerDeals.ts`
+selects `category` from `flyer_deals`, filters by ZIP and non-null price,
+orders by price, and limits to 2,000. No category-based section grouping was
+found in the reviewed Deals components. The price/store proxy has not been
+reconciled against all app query paths, and no live app query was run with
+actual affected IDs.

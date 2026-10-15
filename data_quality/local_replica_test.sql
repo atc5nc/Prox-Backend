@@ -123,6 +123,73 @@ begin
 end
 $worker_assert$;
 
+-- Replay the saved incremental finalizer after the correction. Only its
+-- range-upsert helper is stubbed; the classification RPC is not invoked.
+\ir local_v27_finalize_fixture.sql
+select public.v27_finalize_source_product_incremental(9001);
+select public.v27_finalize_source_product_incremental(9002);
+
+do $v27_finalize_assert$
+begin
+  if (select category from public.flyer_deals where id = 117483543) <> 'PANTRY' then
+    raise exception 'v27 finalizer did not preserve the corrected Pantry category';
+  end if;
+  if not exists (
+    select 1 from public.flyer_deals f
+    where f.id = 117483543
+      and f.canonical_product_id = 27
+      and f.canonical_product_name = 'Canned Tuna'
+      and f.source_product_id = 9001
+      and f.match_key_version = 3
+      and f.match_key = public.build_match_key_v3(
+        f.brand, f.canonical_product_name, f.product_name,
+        f.base_amount, f.base_unit, f.product_size
+      )
+  ) then
+    raise exception 'v27 finalizer did not apply expected match-key projection to the corrected row';
+  end if;
+  if not exists (
+    select 1 from public.canonical_offer_search_projection_v27 p
+    where p.flyer_deal_id = 117483543
+      and p.canonical_product_id = 27
+      and p.source_product_id = 9001
+      and p.zip_code = '94103'
+      and p.retailer_key = 'wholefoodsv2'
+  ) then
+    raise exception 'v27 finalizer did not refresh the affected row projection';
+  end if;
+  if (select category from public.flyer_deals where id = 120247137) <> 'SEAFOOD' then
+    raise exception 'v27 finalizer changed the excluded sushi row category';
+  end if;
+  if not exists (
+    select 1 from public.canonical_offer_search_projection_v27 p
+    where p.flyer_deal_id = 120247137 and p.source_product_id = 9002
+  ) then
+    raise exception 'v27 finalizer did not complete the excluded-row projection fixture';
+  end if;
+  if not exists (
+    select 1
+    from public.flyer_deals f
+    where f.id = 117483543
+      and f.zip_code = '94103'
+      and f.product_price is not null
+      and f.category = 'PANTRY'
+  ) then
+    raise exception 'Deals browse query shape did not expose PANTRY on the corrected item';
+  end if;
+  if not exists (
+    select 1
+    from public.flyer_deals f
+    where f.id = 120247137
+      and f.zip_code = '94103'
+      and f.product_price is not null
+      and f.category = 'SEAFOOD'
+  ) then
+    raise exception 'Deals browse query shape changed the excluded sushi category';
+  end if;
+end
+$v27_finalize_assert$;
+
 -- Roll back the rule first, then restore a captured category, matching the
 -- documented order. This is still an isolated local fixture database.
 \ir rollback_canned_fish_pantry_rule.sql
