@@ -68,6 +68,26 @@ DISABLE_PREFETCH = os.getenv("STORE_LOCATION_DISABLE_PREFETCH", "0").strip().low
 }
 
 
+def _effective_indexed_repair_max_pages(cli_max_pages: int | None) -> int | None:
+    """Allow a targeted Railway service to enforce a bounded repair page cap.
+
+    The override is intentionally opt-in and only affects indexed source-store
+    repairs. It is useful for production repair jobs where the service runtime
+    command may be pinned to an older snapshot. Normal workers are unaffected.
+    """
+    raw = os.getenv("STORE_LOCATION_INDEXED_REPAIR_MAX_PAGES", "").strip()
+    if not raw:
+        return cli_max_pages
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid STORE_LOCATION_INDEXED_REPAIR_MAX_PAGES=%r", raw
+        )
+        return cli_max_pages
+    return value if value > 0 else cli_max_pages
+
+
 def _is_transient_network_error(exc: Exception) -> bool:
     text = f"{type(exc).__name__}: {exc}"
     return any(marker in text for marker in TRANSIENT_NETWORK_MARKERS)
@@ -533,6 +553,7 @@ def run_indexed_source_store_repair(
     the configured nearby radius remain identical to the normal matcher.
     """
     effective_page_size = page_size or DEFAULT_PAGE_SIZE
+    effective_max_pages = _effective_indexed_repair_max_pages(max_pages)
     source_store_ids = _load_source_store_ids(source_store_retailer_key)
     stats = {
         "processed": 0,
@@ -559,10 +580,15 @@ def run_indexed_source_store_repair(
     highest_id = start_id
 
     logger.info(
-        "Indexed repair source_store_retailer=%s source_stores=%s retailer=%s",
+        "Indexed repair source_store_retailer=%s source_stores=%s retailer=%s "
+        "page_size=%s write_chunk=%s cli_max_pages=%s effective_max_pages=%s",
         source_store_retailer_key,
         len(source_store_ids),
         retailer_filter or "*",
+        effective_page_size,
+        BATCH_WRITE_MAX,
+        max_pages,
+        effective_max_pages,
     )
 
     for source_store_id in source_store_ids:
@@ -606,10 +632,10 @@ def run_indexed_source_store_repair(
 
             if len(page) < effective_page_size:
                 break
-            if max_pages and page_num >= max_pages:
+            if effective_max_pages and page_num >= effective_max_pages:
                 break
 
-        if max_pages and page_num >= max_pages:
+        if effective_max_pages and page_num >= effective_max_pages:
             break
 
     stats["pages"] = page_num
