@@ -28,8 +28,10 @@ from concurrent.futures import Future, ThreadPoolExecutor
 
 from config.supabase import supabase
 from services.store_location_matcher import (
+    StoreMatchResult,
     find_store_for_deal,
     get_match_cache_stats,
+    valid_store_ids_for_retailer,
 )
 
 logging.basicConfig(
@@ -91,22 +93,28 @@ def _fetch_page(
     retailer_filter: str | None,
     only_unmatched: bool,
     created_after: str | None,
+    created_before: str | None,
+    end_id: int | None,
     page_size: int,
 ) -> list:
     q = (
         supabase.table("flyer_deals")
-        .select("id, retailer_key, retailer, zip_code, store_lat, store_lng")
+        .select("id, retailer_key, retailer, zip_code, store_lat, store_lng, store_id")
         .gt("id", last_id)
         .order("id")
         .limit(page_size)
     )
 
+    if end_id is not None:
+        q = q.lte("id", end_id)
     if retailer_filter:
         q = q.eq("retailer_key", retailer_filter)
     if only_unmatched:
         q = q.is_("store_id", "null")
     if created_after:
         q = q.gte("created_at", created_after)
+    if created_before:
+        q = q.lt("created_at", created_before)
 
     result = _execute_with_retry(
         q.execute,
@@ -201,14 +209,21 @@ def _write_batch(matched_pairs: list[tuple], dry_run: bool) -> tuple[int, int]:
     return success, errors
 
 
-def _process_page(page: list, stats: dict) -> list[tuple]:
-    matched_pairs = []
+def _process_page(
+    page: list,
+    stats: dict,
+    repair_invalid_existing: bool = False,
+) -> list[tuple]:
+    updates = []
+    valid_store_ids_cache: dict[tuple[str, str], set[int]] = {}
 
     for deal in page:
         stats["processed"] += 1
         source_key = (deal.get("retailer_key") or "").strip()
         retailer_raw = deal.get("retailer") or source_key
         zip_code = str(deal.get("zip_code") or "").strip()
+        current_store_id = deal.get("store_id")
+        current_store_invalid = False
 
         if not source_key:
             stats["skipped_null_retailer"] += 1
@@ -216,6 +231,31 @@ def _process_page(page: list, stats: dict) -> list[tuple]:
         if not zip_code:
             stats["skipped_null_zip"] += 1
             continue
+
+        if repair_invalid_existing and current_store_id is not None:
+            cache_key = (source_key.lower(), str(retailer_raw).strip().lower())
+            if cache_key not in valid_store_ids_cache:
+                valid_store_ids_cache[cache_key] = valid_store_ids_for_retailer(
+                    source_key,
+                    retailer_raw,
+                )
+
+            try:
+                current_store_id_int = int(current_store_id)
+            except (TypeError, ValueError):
+                current_store_id_int = None
+
+            if (
+                current_store_id_int is not None
+                and current_store_id_int in valid_store_ids_cache[cache_key]
+            ):
+                stats["skipped_valid_existing"] += 1
+                continue
+
+            current_store_invalid = True
+            stats["repair_candidates"] += 1
+        elif repair_invalid_existing:
+            stats["null_candidates"] += 1
 
         try:
             match = find_store_for_deal(
@@ -226,7 +266,9 @@ def _process_page(page: list, stats: dict) -> list[tuple]:
                 deal_lng=deal.get("store_lng"),
             )
             if match.store_id is not None:
-                matched_pairs.append((deal["id"], match))
+                updates.append((deal["id"], match))
+                if current_store_invalid:
+                    stats["remap_candidates"] += 1
                 stats[match.match_confidence] = (
                     stats.get(match.match_confidence, 0) + 1
                 )
@@ -235,12 +277,27 @@ def _process_page(page: list, stats: dict) -> list[tuple]:
                 stats["no_match_reasons"][match.matched_by] = (
                     stats["no_match_reasons"].get(match.matched_by, 0) + 1
                 )
+                if current_store_invalid:
+                    updates.append(
+                        (
+                            deal["id"],
+                            StoreMatchResult(
+                                None,
+                                "none",
+                                0,
+                                "repair_invalid_no_match",
+                                [],
+                                None,
+                                match.store_retailer_key,
+                            ),
+                        )
+                    )
+                    stats["clear_candidates"] += 1
         except Exception as exc:
             logger.exception("Store match error on flyer_deals.id=%s: %s", deal["id"], exc)
             stats["errors"] += 1
 
-    return matched_pairs
-
+    return updates
 
 def run_backfill(
     retailer_filter: str | None = None,
@@ -248,8 +305,11 @@ def run_backfill(
     only_unmatched: bool = True,
     start_id: int = 0,
     created_after: str | None = None,
+    created_before: str | None = None,
+    end_id: int | None = None,
     page_size: int | None = None,
     max_pages: int | None = None,
+    repair_invalid_existing: bool = False,
 ) -> dict:
     """Run a restart-safe store-location backfill.
 
@@ -267,6 +327,11 @@ def run_backfill(
         "nearby_multi": 0,
         "no_match": 0,
         "errors": 0,
+        "repair_candidates": 0,
+        "null_candidates": 0,
+        "skipped_valid_existing": 0,
+        "remap_candidates": 0,
+        "clear_candidates": 0,
         "no_match_reasons": {},
     }
 
@@ -294,7 +359,11 @@ def run_backfill(
             total_rows,
         )
 
-        matched_pairs = _process_page(page, stats)
+        matched_pairs = _process_page(
+            page,
+            stats,
+            repair_invalid_existing=repair_invalid_existing,
+        )
 
         if matched_pairs:
             success, errors = _write_batch(matched_pairs, dry_run)
@@ -318,6 +387,8 @@ def run_backfill(
                 retailer_filter,
                 only_unmatched,
                 created_after,
+                created_before,
+                end_id,
                 effective_page_size,
             )
             if not page:
@@ -334,6 +405,8 @@ def run_backfill(
                 retailer_filter,
                 only_unmatched,
                 created_after,
+                created_before,
+                end_id,
                 effective_page_size,
             )
 
@@ -352,6 +425,8 @@ def run_backfill(
                         retailer_filter,
                         only_unmatched,
                         created_after,
+                        created_before,
+                        end_id,
                         effective_page_size,
                     )
 
@@ -386,9 +461,28 @@ if __name__ == "__main__":
         help="Only process rows created at/after this ISO-8601 timestamptz",
     )
     parser.add_argument(
+        "--created-before",
+        default=None,
+        help="Only process rows created before this ISO-8601 timestamptz",
+    )
+    parser.add_argument(
+        "--end-id",
+        type=int,
+        default=None,
+        help="Optional inclusive upper flyer_deals.id bound for a frozen cohort",
+    )
+    parser.add_argument(
         "--all-rows",
         action="store_true",
         help="Reprocess already-matched rows",
+    )
+    parser.add_argument(
+        "--repair-invalid-store-ids",
+        action="store_true",
+        help=(
+            "Process null store IDs plus existing mappings that are not valid "
+            "for the canonical retailer catalog; leave valid existing mappings untouched"
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -406,8 +500,11 @@ if __name__ == "__main__":
     run_backfill(
         retailer_filter=args.retailer,
         dry_run=args.dry_run,
-        only_unmatched=not args.all_rows,
+        only_unmatched=not (args.all_rows or args.repair_invalid_store_ids),
         start_id=args.start_id,
         created_after=args.created_after,
+        created_before=args.created_before,
+        end_id=args.end_id,
         max_pages=args.max_pages,
+        repair_invalid_existing=args.repair_invalid_store_ids,
     )
