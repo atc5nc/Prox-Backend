@@ -340,7 +340,7 @@ values
 (153204558,26568969,'Genova Mediterranean Bean Salad Tuna Bowl','Genova',27,'Canned Tuna','SEAFOOD','fixture',0.7,false,true,'fixture-salad',2,2.99,101,'Fixture Market','fixture_market','90000',5,'oz','5 oz',now(),now()),
 (152956469,38204,'Safe Catch Ahi Wild Yellowfin Tuna Steaks, 5 oz, 6-count','Safe Catch',27,'Canned Tuna','SEAFOOD','fixture',0.7,false,true,'fixture-steaks',2,2.99,101,'Fixture Market','fixture_market','90000',5,'oz','5 oz',now(),now()),
 (133655391,32041543,'Wegmans Yellowfin Solid Light Tuna in Extra Virgin Olive Oil with Sea Salt','Wegmans',27,'Canned Tuna','PANTRY','fixture',0.7,false,false,'fixture-pantry',2,2.99,101,'Fixture Market','fixture_market','90000',5,'oz','5 oz',now(),now()),
-(9900000001,9900000001,'Northern Catch Pink Salmon','Northern Catch',27,'Canned Tuna','SEAFOOD','fixture',0.7,false,true,'fixture-mismatch',2,2.99,101,'Fixture Market','fixture_market','90000',5,'oz','5 oz',now(),now());
+(9900000001,9900000001,'Northern Catch Pink Salmon','Northern Catch',27,'Canned Salmon','SEAFOOD','fixture',0.7,false,true,'fixture-mismatch',2,2.99,101,'Fixture Market','fixture_market','90000',5,'oz','5 oz',now(),now());
 insert into public.canonical_offer_shadow_v2(flyer_deal_id,source_product_id,deal_created_at,canonical_product_id_at_link,mapping_status_at_link,link_method,refreshed_at)
 select f.id,f.source_product_id,f.created_at,s.canonical_product_id,'mapped','fixture',now()
 from public.flyer_deals f join public.source_products_v2 s on s.id=f.source_product_id;
