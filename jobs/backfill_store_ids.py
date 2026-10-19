@@ -48,7 +48,11 @@ TRANSIENT_NETWORK_MARKERS = (
     "RemoteProtocolError",
     "LocalProtocolError",
     "ReadError",
+    "ReadTimeout",
     "ConnectError",
+    "ConnectTimeout",
+    "PoolTimeout",
+    "WriteTimeout",
     "TimeoutException",
     "ConnectionTerminated",
     "Resource temporarily unavailable",
@@ -119,6 +123,61 @@ def _fetch_page(
     result = _execute_with_retry(
         q.execute,
         label=f"fetch flyer_deals page after id={last_id} retailer={retailer_filter or '*'}",
+    )
+    return result.data or []
+
+
+def _load_source_store_ids(source_store_retailer_key: str) -> list[int]:
+    """Load the source catalog IDs used to drive an indexed repair.
+
+    This avoids a broad retailer_key scan of flyer_deals. The repair query can
+    instead use flyer_deals.store_id, which is indexed in production.
+    """
+    result = _execute_with_retry(
+        lambda: supabase.table("store_locations")
+        .select("id")
+        .eq("retailer_key", source_store_retailer_key)
+        .order("id")
+        .limit(1000)
+        .execute(),
+        label=f"load source store ids retailer={source_store_retailer_key}",
+    )
+    return [int(row["id"]) for row in (result.data or [])]
+
+
+def _fetch_page_by_source_store(
+    source_store_id: int,
+    last_id: int,
+    retailer_filter: str | None,
+    created_after: str | None,
+    created_before: str | None,
+    end_id: int | None,
+    page_size: int,
+) -> list:
+    """Fetch one bounded page through the indexed current store_id."""
+    q = (
+        supabase.table("flyer_deals")
+        .select("id, retailer_key, retailer, zip_code, store_lat, store_lng, store_id")
+        .eq("store_id", source_store_id)
+        .gt("id", last_id)
+        .order("id")
+        .limit(page_size)
+    )
+    if end_id is not None:
+        q = q.lte("id", end_id)
+    if retailer_filter:
+        q = q.eq("retailer_key", retailer_filter)
+    if created_after:
+        q = q.gte("created_at", created_after)
+    if created_before:
+        q = q.lt("created_at", created_before)
+
+    result = _execute_with_retry(
+        q.execute,
+        label=(
+            f"fetch flyer_deals source_store_id={source_store_id} "
+            f"after id={last_id}"
+        ),
     )
     return result.data or []
 
@@ -216,6 +275,7 @@ def _process_page(
 ) -> list[tuple]:
     updates = []
     valid_store_ids_cache: dict[tuple[str, str], set[int]] = {}
+    match_result_cache: dict[tuple, StoreMatchResult] = {}
 
     for deal in page:
         stats["processed"] += 1
@@ -258,13 +318,24 @@ def _process_page(
             stats["null_candidates"] += 1
 
         try:
-            match = find_store_for_deal(
-                retailer_key=source_key,
-                retailer_raw=retailer_raw,
-                zip_code=zip_code,
-                deal_lat=deal.get("store_lat"),
-                deal_lng=deal.get("store_lng"),
+            match_key = (
+                source_key.lower(),
+                str(retailer_raw).strip().lower(),
+                zip_code,
+                str(deal.get("store_lat")),
+                str(deal.get("store_lng")),
             )
+            match = match_result_cache.get(match_key)
+            if match is None:
+                match = find_store_for_deal(
+                    retailer_key=source_key,
+                    retailer_raw=retailer_raw,
+                    zip_code=zip_code,
+                    deal_lat=deal.get("store_lat"),
+                    deal_lng=deal.get("store_lng"),
+                )
+                match_result_cache[match_key] = match
+
             if match.store_id is not None:
                 updates.append((deal["id"], match))
                 if current_store_invalid:
@@ -442,6 +513,117 @@ def run_backfill(
     return stats
 
 
+def run_indexed_source_store_repair(
+    *,
+    source_store_retailer_key: str,
+    retailer_filter: str | None,
+    dry_run: bool = False,
+    start_id: int = 0,
+    created_after: str | None = None,
+    created_before: str | None = None,
+    end_id: int | None = None,
+    page_size: int | None = None,
+    max_pages: int | None = None,
+) -> dict:
+    """Repair existing mappings by scanning indexed source store IDs.
+
+    Intended for legacy-catalog cleanup where bad rows already have non-null
+    store_id values. Valid target matching still flows through
+    find_store_for_deal(), so retailer isolation, coordinate validation, and
+    the configured nearby radius remain identical to the normal matcher.
+    """
+    effective_page_size = page_size or DEFAULT_PAGE_SIZE
+    source_store_ids = _load_source_store_ids(source_store_retailer_key)
+    stats = {
+        "processed": 0,
+        "skipped_null_retailer": 0,
+        "skipped_null_zip": 0,
+        "matched": 0,
+        "zip_single": 0,
+        "zip_multi": 0,
+        "nearby_single": 0,
+        "nearby_multi": 0,
+        "no_match": 0,
+        "errors": 0,
+        "repair_candidates": 0,
+        "null_candidates": 0,
+        "skipped_valid_existing": 0,
+        "remap_candidates": 0,
+        "clear_candidates": 0,
+        "no_match_reasons": {},
+        "source_store_count": len(source_store_ids),
+    }
+
+    page_num = 0
+    total_rows = 0
+    highest_id = start_id
+
+    logger.info(
+        "Indexed repair source_store_retailer=%s source_stores=%s retailer=%s",
+        source_store_retailer_key,
+        len(source_store_ids),
+        retailer_filter or "*",
+    )
+
+    for source_store_id in source_store_ids:
+        last_id = start_id
+        while True:
+            page = _fetch_page_by_source_store(
+                source_store_id,
+                last_id,
+                retailer_filter,
+                created_after,
+                created_before,
+                end_id,
+                effective_page_size,
+            )
+            if not page:
+                break
+
+            page_num += 1
+            total_rows += len(page)
+            last_id = int(page[-1]["id"])
+            highest_id = max(highest_id, last_id)
+
+            logger.info(
+                "Indexed page %s source_store_id=%s fetched=%s after id=%s total=%s",
+                page_num,
+                source_store_id,
+                len(page),
+                page[0]["id"] if page else last_id,
+                total_rows,
+            )
+
+            matched_pairs = _process_page(
+                page,
+                stats,
+                repair_invalid_existing=True,
+            )
+            if matched_pairs:
+                success, errors = _write_batch(matched_pairs, dry_run)
+                stats["matched"] += success
+                stats["errors"] += errors
+
+            if len(page) < effective_page_size:
+                break
+            if max_pages and page_num >= max_pages:
+                break
+
+        if max_pages and page_num >= max_pages:
+            break
+
+    stats["pages"] = page_num
+    stats["last_id"] = highest_id
+    stats["cache"] = get_match_cache_stats()
+    logger.info(
+        "Done indexed repair source_store_retailer=%s retailer=%s: %s",
+        source_store_retailer_key,
+        retailer_filter or "*",
+        stats,
+    )
+    return stats
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backfill store_id on flyer_deals")
     parser.add_argument(
@@ -485,6 +667,15 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
+        "--source-store-retailer-key",
+        default=None,
+        help=(
+            "Drive an invalid-mapping repair through store_id values from this "
+            "store_locations.retailer_key. This uses the indexed store_id path "
+            "instead of a broad flyer_deals retailer scan."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Log payloads without writing to the database",
@@ -497,14 +688,30 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    run_backfill(
-        retailer_filter=args.retailer,
-        dry_run=args.dry_run,
-        only_unmatched=not (args.all_rows or args.repair_invalid_store_ids),
-        start_id=args.start_id,
-        created_after=args.created_after,
-        created_before=args.created_before,
-        end_id=args.end_id,
-        max_pages=args.max_pages,
-        repair_invalid_existing=args.repair_invalid_store_ids,
-    )
+    if args.source_store_retailer_key:
+        if not args.repair_invalid_store_ids:
+            parser.error(
+                "--source-store-retailer-key requires --repair-invalid-store-ids"
+            )
+        run_indexed_source_store_repair(
+            source_store_retailer_key=args.source_store_retailer_key,
+            retailer_filter=args.retailer,
+            dry_run=args.dry_run,
+            start_id=args.start_id,
+            created_after=args.created_after,
+            created_before=args.created_before,
+            end_id=args.end_id,
+            max_pages=args.max_pages,
+        )
+    else:
+        run_backfill(
+            retailer_filter=args.retailer,
+            dry_run=args.dry_run,
+            only_unmatched=not (args.all_rows or args.repair_invalid_store_ids),
+            start_id=args.start_id,
+            created_after=args.created_after,
+            created_before=args.created_before,
+            end_id=args.end_id,
+            max_pages=args.max_pages,
+            repair_invalid_existing=args.repair_invalid_store_ids,
+        )
