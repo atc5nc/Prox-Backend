@@ -6,9 +6,11 @@ import pytest
 
 fake_supabase = types.ModuleType("config.supabase")
 fake_supabase.get_supabase_client = lambda: object()
+fake_supabase.supabase = object()
 sys.modules["config.supabase"] = fake_supabase
 
 from services import store_location_matcher as matcher
+from jobs import backfill_store_ids as backfill
 
 
 @pytest.mark.parametrize(
@@ -161,3 +163,13 @@ def test_wholefoodsv2_uses_only_canonical_wholefoods_catalog(monkeypatch):
 
     assert result.store_id == 20
     assert calls == ["wholefoods"]
+
+
+def test_indexed_repair_page_cap_env_override(monkeypatch):
+    monkeypatch.setenv("STORE_LOCATION_INDEXED_REPAIR_MAX_PAGES", "21")
+    assert backfill._effective_indexed_repair_max_pages(1) == 21
+
+
+def test_indexed_repair_page_cap_falls_back_on_invalid_env(monkeypatch):
+    monkeypatch.setenv("STORE_LOCATION_INDEXED_REPAIR_MAX_PAGES", "not-an-int")
+    assert backfill._effective_indexed_repair_max_pages(7) == 7
