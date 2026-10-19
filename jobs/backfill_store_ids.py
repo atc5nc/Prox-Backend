@@ -275,6 +275,7 @@ def _process_page(
 ) -> list[tuple]:
     updates = []
     valid_store_ids_cache: dict[tuple[str, str], set[int]] = {}
+    match_result_cache: dict[tuple, StoreMatchResult] = {}
 
     for deal in page:
         stats["processed"] += 1
@@ -317,13 +318,24 @@ def _process_page(
             stats["null_candidates"] += 1
 
         try:
-            match = find_store_for_deal(
-                retailer_key=source_key,
-                retailer_raw=retailer_raw,
-                zip_code=zip_code,
-                deal_lat=deal.get("store_lat"),
-                deal_lng=deal.get("store_lng"),
+            match_key = (
+                source_key.lower(),
+                str(retailer_raw).strip().lower(),
+                zip_code,
+                str(deal.get("store_lat")),
+                str(deal.get("store_lng")),
             )
+            match = match_result_cache.get(match_key)
+            if match is None:
+                match = find_store_for_deal(
+                    retailer_key=source_key,
+                    retailer_raw=retailer_raw,
+                    zip_code=zip_code,
+                    deal_lat=deal.get("store_lat"),
+                    deal_lng=deal.get("store_lng"),
+                )
+                match_result_cache[match_key] = match
+
             if match.store_id is not None:
                 updates.append((deal["id"], match))
                 if current_store_invalid:
