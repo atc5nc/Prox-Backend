@@ -245,14 +245,32 @@ def _get_zip_centroid(zip_code: str) -> tuple[float, float] | None:
 
 
 def _coords(store: dict[str, Any]) -> tuple[float, float] | None:
+    """Return usable WGS84 coordinates, otherwise None.
+
+    Exact-ZIP matches must obey the same coordinate sanity rules as nearby
+    matches. In particular, legacy placeholder (0, 0) rows are never eligible.
+    """
     lat = store.get("latitude")
     lng = store.get("longitude")
     if lat is None or lng is None:
         return None
     try:
-        return float(lat), float(lng)
+        lat_f = float(lat)
+        lng_f = float(lng)
     except (TypeError, ValueError):
         return None
+
+    if not math.isfinite(lat_f) or not math.isfinite(lng_f):
+        return None
+    if not (-90.0 <= lat_f <= 90.0 and -180.0 <= lng_f <= 180.0):
+        return None
+    if lat_f == 0.0 and lng_f == 0.0:
+        return None
+    return lat_f, lng_f
+
+
+def _valid_stores(stores: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [store for store in stores if _coords(store) is not None]
 
 
 def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -272,25 +290,38 @@ def _pick_nearest(
     ref_lat: float | None,
     ref_lng: float | None,
 ) -> tuple[int, float | None]:
-    if not stores:
-        raise ValueError("stores cannot be empty")
+    valid_stores = _valid_stores(stores)
+    if not valid_stores:
+        raise ValueError("stores must contain at least one valid coordinate")
 
     if ref_lat is None or ref_lng is None:
-        return int(stores[0]["id"]), None
+        return int(valid_stores[0]["id"]), None
 
     candidates: list[tuple[dict[str, Any], float]] = []
-    for store in stores:
+    for store in valid_stores:
         point = _coords(store)
-        if not point:
+        if point is None:
             continue
         distance = _haversine(ref_lat, ref_lng, point[0], point[1])
         candidates.append((store, distance))
 
-    if not candidates:
-        return int(stores[0]["id"]), None
-
     store, distance = min(candidates, key=lambda item: item[1])
     return int(store["id"]), distance
+
+
+def valid_store_ids_for_retailer(
+    retailer_key: str | None,
+    retailer_raw: str | None = None,
+) -> set[int]:
+    """Return store IDs eligible for matching for the canonical retailer catalog."""
+    store_key = canonical_store_retailer_key(retailer_key, retailer_raw)
+    if not store_key:
+        return set()
+
+    stores = _valid_stores(_load_retailer_stores(store_key))
+    if not stores and retailer_raw:
+        stores = _valid_stores(_load_retailer_stores_by_exact_name(retailer_raw))
+    return {int(store["id"]) for store in stores}
 
 
 def find_store_for_deal(
@@ -315,11 +346,11 @@ def find_store_for_deal(
     if not store_key or not zip_code:
         return StoreMatchResult(None, "none", 0, "missing_retailer_or_zip")
 
-    stores = _load_retailer_stores(store_key)
+    stores = _valid_stores(_load_retailer_stores(store_key))
     used_name_fallback = False
 
     if not stores and retailer_raw:
-        stores = _load_retailer_stores_by_exact_name(retailer_raw)
+        stores = _valid_stores(_load_retailer_stores_by_exact_name(retailer_raw))
         used_name_fallback = bool(stores)
 
     if not stores:
