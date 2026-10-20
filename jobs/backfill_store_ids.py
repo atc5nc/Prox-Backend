@@ -44,6 +44,7 @@ DEFAULT_PAGE_SIZE = int(os.getenv("STORE_LOCATION_PAGE_SIZE", "1000"))
 BATCH_WRITE_MAX = int(os.getenv("STORE_LOCATION_WRITE_CHUNK", "50"))
 MIN_CHUNK = 1
 TIMEOUT_CODE = "57014"
+LOCK_TIMEOUT_CODE = "55P03"
 TRANSIENT_NETWORK_MARKERS = (
     "RemoteProtocolError",
     "LocalProtocolError",
@@ -91,6 +92,20 @@ def _effective_indexed_repair_max_pages(cli_max_pages: int | None) -> int | None
 def _is_transient_network_error(exc: Exception) -> bool:
     text = f"{type(exc).__name__}: {exc}"
     return any(marker in text for marker in TRANSIENT_NETWORK_MARKERS)
+
+
+def _is_split_retryable_write_error(exc: Exception) -> bool:
+    err_str = str(exc)
+    code = getattr(exc, "code", None) or (
+        exc.args[0].get("code")
+        if exc.args and isinstance(exc.args[0], dict)
+        else None
+    )
+    return (
+        code in {TIMEOUT_CODE, LOCK_TIMEOUT_CODE}
+        or TIMEOUT_CODE in err_str
+        or LOCK_TIMEOUT_CODE in err_str
+    )
 
 
 def _execute_with_retry(operation, *, label: str):
@@ -229,14 +244,7 @@ def _write_chunk(ids: list, payload: dict, depth: int = 0) -> tuple[int, int]:
         return len(ids), 0
 
     except Exception as exc:
-        err_str = str(exc)
-        code = getattr(exc, "code", None) or (
-            exc.args[0].get("code")
-            if exc.args and isinstance(exc.args[0], dict)
-            else None
-        )
-
-        if TIMEOUT_CODE in err_str or code == TIMEOUT_CODE:
+        if _is_split_retryable_write_error(exc):
             if len(ids) <= MIN_CHUNK:
                 logger.error("Timeout on single row id=%s, skipping", ids[0])
                 return 0, 1
