@@ -225,11 +225,15 @@ def main() -> None:
 
     while True:
         try:
-            totals = run_cycle()
-
+            # Repair known non-null legacy mappings before the broad unmatched
+            # scan. The global scan can be large, so putting the indexed repair
+            # first prevents an existing bad store_id from waiting behind a
+            # backlog of unrelated null store_ids.
             if invalid_repair_due(last_invalid_repair_started):
                 last_invalid_repair_started = time.monotonic()
                 run_invalid_existing_repair()
+
+            totals = run_cycle()
 
             sleep_for = (
                 ACTIVE_SLEEP_SECONDS if totals["matched"] > 0 else IDLE_SLEEP_SECONDS
