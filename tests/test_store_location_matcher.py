@@ -246,3 +246,28 @@ def test_store_repair_update_requests_minimal_representation(monkeypatch):
     assert captured["table"] == "flyer_deals"
     assert captured["payload"] == {"store_id": 123}
     assert captured["returning"] == backfill.ReturnMethod.minimal
+
+
+def test_indexed_range_runs_split_mixed_page_contiguously():
+    page = [{"id": 1}, {"id": 3}, {"id": 5}, {"id": 7}]
+    first = matcher.StoreMatchResult(11461, "nearby_single", 1, "nearest_within_radius")
+    second = matcher.StoreMatchResult(11462, "zip_single", 1, "zip_code")
+
+    runs = backfill._payload_runs_for_full_page(
+        page,
+        [(1, first), (3, first), (5, second), (7, second)],
+    )
+
+    assert runs is not None
+    assert [(run[0], run[1], len(run[3])) for run in runs] == [
+        (1, 3, 2),
+        (5, 7, 2),
+    ]
+    assert runs[0][2]["store_id"] == 11461
+    assert runs[1][2]["store_id"] == 11462
+
+
+def test_indexed_range_runs_require_page_pair_alignment():
+    page = [{"id": 1}, {"id": 2}]
+    match = matcher.StoreMatchResult(11461, "nearby_single", 1, "nearest_within_radius")
+    assert backfill._payload_runs_for_full_page(page, [(2, match), (1, match)]) is None
