@@ -1,5 +1,6 @@
 import sys
 import types
+from enum import Enum
 
 import pytest
 
@@ -8,6 +9,20 @@ fake_supabase = types.ModuleType("config.supabase")
 fake_supabase.get_supabase_client = lambda: object()
 fake_supabase.supabase = object()
 sys.modules["config.supabase"] = fake_supabase
+
+fake_postgrest = types.ModuleType("postgrest")
+fake_postgrest_types = types.ModuleType("postgrest.types")
+
+
+class FakeReturnMethod(Enum):
+    minimal = "minimal"
+    representation = "representation"
+
+
+fake_postgrest_types.ReturnMethod = FakeReturnMethod
+fake_postgrest.types = fake_postgrest_types
+sys.modules["postgrest"] = fake_postgrest
+sys.modules["postgrest.types"] = fake_postgrest_types
 
 from services import store_location_matcher as matcher
 from jobs import backfill_store_ids as backfill
@@ -208,3 +223,26 @@ def test_indexed_range_write_rejects_mixed_or_partial_pages():
     second = matcher.StoreMatchResult(11462, "nearby_single", 1, "nearest_within_radius")
     assert backfill._single_payload_for_full_page(page, [(1, first), (2, second)]) is None
     assert backfill._single_payload_for_full_page(page, [(1, first)]) is None
+
+
+def test_store_repair_update_requests_minimal_representation(monkeypatch):
+    captured = {}
+
+    class FakeTable:
+        def update(self, payload, **kwargs):
+            captured["payload"] = payload
+            captured.update(kwargs)
+            return self
+
+    class FakeClient:
+        def table(self, name):
+            captured["table"] = name
+            return FakeTable()
+
+    monkeypatch.setattr(backfill, "supabase", FakeClient())
+    builder = backfill._minimal_update("flyer_deals", {"store_id": 123})
+
+    assert isinstance(builder, FakeTable)
+    assert captured["table"] == "flyer_deals"
+    assert captured["payload"] == {"store_id": 123}
+    assert captured["returning"] == backfill.ReturnMethod.minimal
