@@ -23,7 +23,7 @@ supabase = get_supabase_client()
 
 CACHE_TTL_SECONDS = int(os.getenv("STORE_LOCATION_CACHE_TTL_SECONDS", "900"))
 MAX_NEARBY_MILES = float(os.getenv("STORE_LOCATION_MAX_NEARBY_MILES", "15"))
-STORE_PAGE_SIZE = 1000
+WHOLE_FOODS_MAX_NEARBY_MILES = float(\n    os.getenv("STORE_LOCATION_WHOLEFOODS_MAX_NEARBY_MILES", "20")\n)\nRETAILER_MAX_NEARBY_MILES: dict[str, float] = {\n    "wholefoods": WHOLE_FOODS_MAX_NEARBY_MILES,\n}\nSTORE_PAGE_SIZE = 1000
 TRANSIENT_NETWORK_MARKERS = ("RemoteProtocolError","ReadError","ConnectError","TimeoutException","ConnectionTerminated","Resource temporarily unavailable","Server disconnected")
 MAX_NETWORK_RETRIES = int(os.getenv("STORE_LOCATION_NETWORK_RETRIES", "5"))
 
@@ -402,8 +402,7 @@ def find_store_for_deal(
             store_retailer_key=fallback_key,
         )
 
-    radius = MAX_NEARBY_MILES if max_nearby_miles is None else max_nearby_miles
-    nearby: list[tuple[dict[str, Any], float]] = []
+    radius = (\n        RETAILER_MAX_NEARBY_MILES.get(store_key, MAX_NEARBY_MILES)\n        if max_nearby_miles is None\n        else max_nearby_miles\n    )\n    nearby: list[tuple[dict[str, Any], float]] = []
     for store in stores:
         point = _coords(store)
         if not point:
