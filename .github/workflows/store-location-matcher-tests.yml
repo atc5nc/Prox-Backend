@@ -5,7 +5,9 @@ on:
     paths:
       - "services/store_location_matcher.py"
       - "jobs/backfill_store_ids.py"
+      - "jobs/store_location_worker.py"
       - "tests/test_store_location_matcher.py"
+      - "tests/test_store_location_worker.py"
       - ".github/workflows/store-location-matcher-tests.yml"
   workflow_dispatch:
 
@@ -22,4 +24,4 @@ jobs:
       - name: Run store location matcher tests
         env:
           PYTHONPATH: .
-        run: pytest -q tests/test_store_location_matcher.py
+        run: pytest -q tests/test_store_location_matcher.py tests/test_store_location_worker.py
