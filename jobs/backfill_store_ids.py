@@ -27,6 +27,7 @@ from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor
 
 from config.supabase import supabase
+from postgrest.types import ReturnMethod
 from services.store_location_matcher import (
     StoreMatchResult,
     find_store_for_deal,
@@ -235,13 +236,21 @@ def _build_payload(match) -> dict:
     }
 
 
+def _minimal_update(table_name: str, payload: dict):
+    """Build an UPDATE that does not return full updated rows."""
+    return supabase.table(table_name).update(
+        payload,
+        returning=ReturnMethod.minimal,
+    )
+
+
 def _write_chunk(ids: list, payload: dict, depth: int = 0) -> tuple[int, int]:
     if not ids:
         return 0, 0
 
     try:
         _execute_with_retry(
-            lambda: supabase.table("flyer_deals").update(payload).in_("id", ids).execute(),
+            lambda: _minimal_update("flyer_deals", payload).in_("id", ids).execute(),
             label=f"write flyer_deals store match chunk size={len(ids)}",
         )
         return len(ids), 0
@@ -340,8 +349,7 @@ def _write_indexed_page(
     first_id = int(page[0]["id"])
     last_id = int(page[-1]["id"])
     q = (
-        supabase.table("flyer_deals")
-        .update(payload)
+        _minimal_update("flyer_deals", payload)
         .eq("store_id", source_store_id)
         .gte("id", first_id)
         .lte("id", last_id)
