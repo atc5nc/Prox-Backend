@@ -184,6 +184,20 @@ def _load_source_store_ids(source_store_retailer_key: str) -> list[int]:
     return [int(row["id"]) for row in (result.data or [])]
 
 
+def _filter_source_store_ids(
+    source_store_ids: list[int],
+    source_store_id_min: int | None = None,
+    source_store_id_max: int | None = None,
+) -> list[int]:
+    """Return a deterministic non-overlapping source-store partition."""
+    return [
+        source_store_id
+        for source_store_id in source_store_ids
+        if (source_store_id_min is None or source_store_id >= source_store_id_min)
+        and (source_store_id_max is None or source_store_id <= source_store_id_max)
+    ]
+
+
 def _fetch_page_by_source_store(
     source_store_id: int,
     last_id: int,
@@ -729,6 +743,8 @@ def run_indexed_source_store_repair(
     end_id: int | None = None,
     page_size: int | None = None,
     max_pages: int | None = None,
+    source_store_id_min: int | None = None,
+    source_store_id_max: int | None = None,
 ) -> dict:
     """Repair existing mappings by scanning indexed source store IDs.
 
@@ -739,7 +755,11 @@ def run_indexed_source_store_repair(
     """
     effective_page_size = page_size or DEFAULT_PAGE_SIZE
     effective_max_pages = _effective_indexed_repair_max_pages(max_pages)
-    source_store_ids = _load_source_store_ids(source_store_retailer_key)
+    source_store_ids = _filter_source_store_ids(
+        _load_source_store_ids(source_store_retailer_key),
+        source_store_id_min,
+        source_store_id_max,
+    )
     stats = {
         "processed": 0,
         "skipped_null_retailer": 0,
@@ -766,7 +786,8 @@ def run_indexed_source_store_repair(
 
     logger.info(
         "Indexed repair source_store_retailer=%s source_stores=%s retailer=%s "
-        "page_size=%s write_chunk=%s range_writes=%s cli_max_pages=%s effective_max_pages=%s",
+        "page_size=%s write_chunk=%s range_writes=%s cli_max_pages=%s effective_max_pages=%s "
+        "source_store_id_min=%s source_store_id_max=%s",
         source_store_retailer_key,
         len(source_store_ids),
         retailer_filter or "*",
@@ -775,6 +796,8 @@ def run_indexed_source_store_repair(
         INDEXED_RANGE_WRITES,
         max_pages,
         effective_max_pages,
+        source_store_id_min,
+        source_store_id_max,
     )
 
     for source_store_id in source_store_ids:
@@ -897,6 +920,18 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
+        "--source-store-id-min",
+        type=int,
+        default=None,
+        help="Optional inclusive lower store_locations.id bound for indexed source-store repair",
+    )
+    parser.add_argument(
+        "--source-store-id-max",
+        type=int,
+        default=None,
+        help="Optional inclusive upper store_locations.id bound for indexed source-store repair",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Log payloads without writing to the database",
@@ -923,6 +958,8 @@ if __name__ == "__main__":
             created_before=args.created_before,
             end_id=args.end_id,
             max_pages=args.max_pages,
+            source_store_id_min=args.source_store_id_min,
+            source_store_id_max=args.source_store_id_max,
         )
     else:
         run_backfill(
