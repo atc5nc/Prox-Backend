@@ -280,3 +280,78 @@ def test_indexed_range_runs_require_page_pair_alignment():
     page = [{"id": 1}, {"id": 2}]
     match = matcher.StoreMatchResult(11461, "nearby_single", 1, "nearest_within_radius")
     assert backfill._payload_runs_for_full_page(page, [(2, match), (1, match)]) is None
+
+
+def test_whole_foods_uses_20_mile_default_radius(monkeypatch):
+    stores = [
+        {
+            "id": 11224,
+            "retailer_key": "wholefoods",
+            "zip_code": "91784",
+            "latitude": 34.1356,
+            "longitude": -117.6598,
+        }
+    ]
+    monkeypatch.setattr(matcher, "_load_retailer_stores", lambda key: stores)
+    monkeypatch.setattr(matcher, "_get_zip_centroid", lambda zip_code: (33.9533, -117.3962))
+    monkeypatch.setattr(matcher, "_haversine", lambda *args: 19.34)
+
+    result = matcher.find_store_for_deal(
+        retailer_key="wholefoodsv2",
+        retailer_raw="Whole Foods Market",
+        zip_code="92503",
+    )
+
+    assert result.store_id == 11224
+    assert result.store_retailer_key == "wholefoods"
+    assert result.matched_by == "nearest_within_radius"
+    assert result.distance_miles == 19.34
+
+
+def test_non_whole_foods_still_uses_15_mile_default_radius(monkeypatch):
+    stores = [
+        {
+            "id": 99,
+            "retailer_key": "aldi",
+            "zip_code": "90048",
+            "latitude": 34.0749,
+            "longitude": -118.3766,
+        }
+    ]
+    monkeypatch.setattr(matcher, "_load_retailer_stores", lambda key: stores)
+    monkeypatch.setattr(matcher, "_get_zip_centroid", lambda zip_code: (34.098, -118.327))
+    monkeypatch.setattr(matcher, "_haversine", lambda *args: 16.0)
+
+    result = matcher.find_store_for_deal(
+        retailer_key="aldiv2",
+        retailer_raw="Aldi",
+        zip_code="90046",
+    )
+
+    assert result.store_id is None
+    assert result.matched_by == "no_store_within_radius"
+
+
+def test_explicit_radius_override_still_wins_for_whole_foods(monkeypatch):
+    stores = [
+        {
+            "id": 11224,
+            "retailer_key": "wholefoods",
+            "zip_code": "91784",
+            "latitude": 34.1356,
+            "longitude": -117.6598,
+        }
+    ]
+    monkeypatch.setattr(matcher, "_load_retailer_stores", lambda key: stores)
+    monkeypatch.setattr(matcher, "_get_zip_centroid", lambda zip_code: (33.9533, -117.3962))
+    monkeypatch.setattr(matcher, "_haversine", lambda *args: 19.34)
+
+    result = matcher.find_store_for_deal(
+        retailer_key="wholefoodsv2",
+        retailer_raw="Whole Foods Market",
+        zip_code="92503",
+        max_nearby_miles=15,
+    )
+
+    assert result.store_id is None
+    assert result.matched_by == "no_store_within_radius"
