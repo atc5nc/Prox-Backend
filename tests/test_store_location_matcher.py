@@ -173,3 +173,18 @@ def test_indexed_repair_page_cap_env_override(monkeypatch):
 def test_indexed_repair_page_cap_falls_back_on_invalid_env(monkeypatch):
     monkeypatch.setenv("STORE_LOCATION_INDEXED_REPAIR_MAX_PAGES", "not-an-int")
     assert backfill._effective_indexed_repair_max_pages(7) == 7
+
+
+def test_store_repair_splits_lock_timeout_failures():
+    exc = Exception({"code": "55P03", "message": "canceling statement due to lock timeout"})
+    assert backfill._is_split_retryable_write_error(exc)
+
+
+def test_store_repair_splits_statement_timeout_failures():
+    exc = Exception({"code": "57014", "message": "canceling statement due to statement timeout"})
+    assert backfill._is_split_retryable_write_error(exc)
+
+
+def test_store_repair_does_not_split_unrelated_write_failures():
+    exc = Exception({"code": "23505", "message": "duplicate key"})
+    assert not backfill._is_split_retryable_write_error(exc)
