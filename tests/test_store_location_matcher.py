@@ -190,6 +190,15 @@ def test_indexed_repair_page_cap_falls_back_on_invalid_env(monkeypatch):
     assert backfill._effective_indexed_repair_max_pages(7) == 7
 
 
+def test_source_store_partition_bounds_are_inclusive():
+    assert backfill._filter_source_store_ids([10, 20, 30, 40], 20, 30) == [20, 30]
+
+
+def test_source_store_partition_bounds_can_be_one_sided():
+    assert backfill._filter_source_store_ids([10, 20, 30, 40], 30, None) == [30, 40]
+    assert backfill._filter_source_store_ids([10, 20, 30, 40], None, 20) == [10, 20]
+
+
 def test_store_repair_splits_lock_timeout_failures():
     exc = Exception({"code": "55P03", "message": "canceling statement due to lock timeout"})
     assert backfill._is_split_retryable_write_error(exc)
