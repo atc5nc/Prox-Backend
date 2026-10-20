@@ -308,11 +308,11 @@ def test_whole_foods_uses_20_mile_default_radius(monkeypatch):
     assert result.distance_miles == 19.34
 
 
-def test_non_whole_foods_still_uses_15_mile_default_radius(monkeypatch):
+def test_non_overridden_retailer_still_uses_15_mile_default_radius(monkeypatch):
     stores = [
         {
             "id": 99,
-            "retailer_key": "aldi",
+            "retailer_key": "target",
             "zip_code": "90048",
             "latitude": 34.0749,
             "longitude": -118.3766,
@@ -323,8 +323,8 @@ def test_non_whole_foods_still_uses_15_mile_default_radius(monkeypatch):
     monkeypatch.setattr(matcher, "_haversine", lambda *args: 16.0)
 
     result = matcher.find_store_for_deal(
-        retailer_key="aldiv2",
-        retailer_raw="Aldi",
+        retailer_key="target",
+        retailer_raw="Target",
         zip_code="90046",
     )
 
