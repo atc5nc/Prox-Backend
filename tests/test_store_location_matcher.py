@@ -1,5 +1,6 @@
 import sys
 import types
+from enum import Enum
 
 import pytest
 
@@ -8,6 +9,20 @@ fake_supabase = types.ModuleType("config.supabase")
 fake_supabase.get_supabase_client = lambda: object()
 fake_supabase.supabase = object()
 sys.modules["config.supabase"] = fake_supabase
+
+fake_postgrest = types.ModuleType("postgrest")
+fake_postgrest_types = types.ModuleType("postgrest.types")
+
+
+class FakeReturnMethod(Enum):
+    minimal = "minimal"
+    representation = "representation"
+
+
+fake_postgrest_types.ReturnMethod = FakeReturnMethod
+fake_postgrest.types = fake_postgrest_types
+sys.modules["postgrest"] = fake_postgrest
+sys.modules["postgrest.types"] = fake_postgrest_types
 
 from services import store_location_matcher as matcher
 from jobs import backfill_store_ids as backfill
