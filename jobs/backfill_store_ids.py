@@ -321,33 +321,71 @@ def _single_payload_for_full_page(page: list, matched_pairs: list[tuple]) -> dic
     return json.loads(next(iter(payloads)))
 
 
-def _write_indexed_page(
-    *,
-    source_store_id: int,
+def _payload_runs_for_full_page(
     page: list,
     matched_pairs: list[tuple],
+) -> list[tuple[int, int, dict, list[tuple]]] | None:
+    """Split a fully matched ordered page into contiguous same-payload runs.
+
+    Each run is safe for a store_id + id-range UPDATE because the page itself
+    was fetched in ascending id order for exactly one legacy source_store_id.
+    The range query keeps the same retailer/date/end-id bounds as the read.
+    """
+    if not page or len(page) != len(matched_pairs):
+        return None
+
+    runs: list[tuple[int, int, dict, list[tuple]]] = []
+    current_key: str | None = None
+    current_payload: dict | None = None
+    current_pairs: list[tuple] = []
+    first_id: int | None = None
+    last_id: int | None = None
+
+    for row, pair in zip(page, matched_pairs):
+        row_id = int(row["id"])
+        deal_id, match = pair
+        if int(deal_id) != row_id:
+            return None
+
+        payload = _build_payload(match)
+        key = json.dumps(payload, sort_keys=True, default=str)
+
+        if current_key is None:
+            current_key = key
+            current_payload = payload
+            current_pairs = [pair]
+            first_id = row_id
+            last_id = row_id
+            continue
+
+        if key == current_key:
+            current_pairs.append(pair)
+            last_id = row_id
+            continue
+
+        runs.append((first_id, last_id, current_payload, current_pairs))
+        current_key = key
+        current_payload = payload
+        current_pairs = [pair]
+        first_id = row_id
+        last_id = row_id
+
+    runs.append((first_id, last_id, current_payload, current_pairs))
+    return runs
+
+
+def _execute_indexed_range_write(
+    *,
+    source_store_id: int,
+    first_id: int,
+    last_id: int,
+    payload: dict,
+    row_count: int,
     retailer_filter: str | None,
     created_after: str | None,
     created_before: str | None,
     end_id: int | None,
-    dry_run: bool,
-) -> tuple[int, int]:
-    """Use one indexed range write for a single-payload page, else fall back.
-
-    The optimization is opt-in for targeted repair services. The UPDATE is
-    constrained to the current legacy store_id, the exact fetched id range,
-    and the same cohort filters as the read. If it hits a statement/lock
-    timeout, the existing id-chunk writer retries safely by splitting.
-    """
-    if dry_run or not INDEXED_RANGE_WRITES:
-        return _write_batch(matched_pairs, dry_run)
-
-    payload = _single_payload_for_full_page(page, matched_pairs)
-    if payload is None:
-        return _write_batch(matched_pairs, dry_run)
-
-    first_id = int(page[0]["id"])
-    last_id = int(page[-1]["id"])
+) -> None:
     q = (
         _minimal_update("flyer_deals", payload)
         .eq("store_id", source_store_id)
@@ -363,31 +401,77 @@ def _write_indexed_page(
     if end_id is not None:
         q = q.lte("id", end_id)
 
-    try:
-        _execute_with_retry(
-            q.execute,
-            label=(
-                f"indexed range write source_store_id={source_store_id} "
-                f"ids={first_id}-{last_id} rows={len(matched_pairs)}"
-            ),
-        )
-        logger.info(
-            "Indexed range write source_store_id=%s rows=%s ids=%s-%s",
-            source_store_id,
-            len(matched_pairs),
-            first_id,
-            last_id,
-        )
-        return len(matched_pairs), 0
-    except Exception as exc:
-        logger.warning(
-            "Indexed range write fallback source_store_id=%s rows=%s: %s",
-            source_store_id,
-            len(matched_pairs),
-            exc,
-        )
+    _execute_with_retry(
+        q.execute,
+        label=(
+            f"indexed range write source_store_id={source_store_id} "
+            f"ids={first_id}-{last_id} rows={row_count}"
+        ),
+    )
+
+
+def _write_indexed_page(
+    *,
+    source_store_id: int,
+    page: list,
+    matched_pairs: list[tuple],
+    retailer_filter: str | None,
+    created_after: str | None,
+    created_before: str | None,
+    end_id: int | None,
+    dry_run: bool,
+) -> tuple[int, int]:
+    """Use bounded indexed range writes for every contiguous payload run.
+
+    The optimization is opt-in for targeted repair services. Each UPDATE is
+    constrained to the current legacy store_id, the exact ordered run id
+    range, and the same cohort filters as the read. If a range write times out
+    or contends, only that run falls back to the chunk-and-split writer.
+    """
+    if dry_run or not INDEXED_RANGE_WRITES:
         return _write_batch(matched_pairs, dry_run)
 
+    runs = _payload_runs_for_full_page(page, matched_pairs)
+    if runs is None:
+        return _write_batch(matched_pairs, dry_run)
+
+    success = 0
+    errors = 0
+    for first_id, last_id, payload, run_pairs in runs:
+        try:
+            _execute_indexed_range_write(
+                source_store_id=source_store_id,
+                first_id=first_id,
+                last_id=last_id,
+                payload=payload,
+                row_count=len(run_pairs),
+                retailer_filter=retailer_filter,
+                created_after=created_after,
+                created_before=created_before,
+                end_id=end_id,
+            )
+            logger.info(
+                "Indexed range write source_store_id=%s rows=%s ids=%s-%s",
+                source_store_id,
+                len(run_pairs),
+                first_id,
+                last_id,
+            )
+            success += len(run_pairs)
+        except Exception as exc:
+            logger.warning(
+                "Indexed range write fallback source_store_id=%s rows=%s ids=%s-%s: %s",
+                source_store_id,
+                len(run_pairs),
+                first_id,
+                last_id,
+                exc,
+            )
+            s, e = _write_batch(run_pairs, dry_run)
+            success += s
+            errors += e
+
+    return success, errors
 
 def _process_page(
     page: list,
