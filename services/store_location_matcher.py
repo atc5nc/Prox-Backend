@@ -26,8 +26,39 @@ MAX_NEARBY_MILES = float(os.getenv("STORE_LOCATION_MAX_NEARBY_MILES", "15"))
 WHOLE_FOODS_MAX_NEARBY_MILES = float(
     os.getenv("STORE_LOCATION_WHOLEFOODS_MAX_NEARBY_MILES", "20")
 )
+ALDI_MAX_NEARBY_MILES = float(os.getenv("STORE_LOCATION_ALDI_MAX_NEARBY_MILES", "20"))
+SMITHS_MAX_NEARBY_MILES = float(
+    os.getenv("STORE_LOCATION_SMITHS_MAX_NEARBY_MILES", "20")
+)
+COSTCO_MAX_NEARBY_MILES = float(
+    os.getenv("STORE_LOCATION_COSTCO_MAX_NEARBY_MILES", "30")
+)
+HEB_MAX_NEARBY_MILES = float(os.getenv("STORE_LOCATION_HEB_MAX_NEARBY_MILES", "30"))
+BJS_MAX_NEARBY_MILES = float(os.getenv("STORE_LOCATION_BJS_MAX_NEARBY_MILES", "30"))
+FOODLION_MAX_NEARBY_MILES = float(
+    os.getenv("STORE_LOCATION_FOODLION_MAX_NEARBY_MILES", "30")
+)
+SAMSCLUB_MAX_NEARBY_MILES = float(
+    os.getenv("STORE_LOCATION_SAMSCLUB_MAX_NEARBY_MILES", "30")
+)
+DOLLARTREE_MAX_NEARBY_MILES = float(
+    os.getenv("STORE_LOCATION_DOLLARTREE_MAX_NEARBY_MILES", "30")
+)
+KROGER_MAX_NEARBY_MILES = float(
+    os.getenv("STORE_LOCATION_KROGER_MAX_NEARBY_MILES", "30")
+)
+
 RETAILER_MAX_NEARBY_MILES: dict[str, float] = {
     "wholefoods": WHOLE_FOODS_MAX_NEARBY_MILES,
+    "aldi": ALDI_MAX_NEARBY_MILES,
+    "smiths": SMITHS_MAX_NEARBY_MILES,
+    "costco": COSTCO_MAX_NEARBY_MILES,
+    "heb": HEB_MAX_NEARBY_MILES,
+    "bjs": BJS_MAX_NEARBY_MILES,
+    "foodlion": FOODLION_MAX_NEARBY_MILES,
+    "samsclub": SAMSCLUB_MAX_NEARBY_MILES,
+    "dollartree": DOLLARTREE_MAX_NEARBY_MILES,
+    "kroger": KROGER_MAX_NEARBY_MILES,
 }
 STORE_PAGE_SIZE = 1000
 TRANSIENT_NETWORK_MARKERS = ("RemoteProtocolError","ReadError","ConnectError","TimeoutException","ConnectionTerminated","Resource temporarily unavailable","Server disconnected")
@@ -76,6 +107,16 @@ SOURCE_RETAILER_KEY_OVERRIDES: dict[str, str] = {
     "namdaemunfarmersmarket": "nam_dae_mun",
     "woodssupermarket": "woods_supermarket",
     "mothersmarket": "mothers_market",
+    "krogerbanner": "kroger",
+    "kroger_banner": "kroger",
+    "key_food": "keyfood",
+}
+
+# Same-banner catalog shards that should be searched together. These do not
+# collapse distinct retailer banners; they only unify duplicate keys for the
+# same store brand.
+STORE_CATALOG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
+    "keyfood": ("keyfood", "key_food"),
 }
 
 DISPLAY_NAME_FALLBACKS: dict[str, str] = {
@@ -278,6 +319,23 @@ def _coords(store: dict[str, Any]) -> tuple[float, float] | None:
 def _valid_stores(stores: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [store for store in stores if _coords(store) is not None]
 
+def _load_candidate_stores(store_key: str) -> list[dict[str, Any]]:
+    """Load all store rows for one banner, including same-banner key shards."""
+    keys = STORE_CATALOG_KEY_ALIASES.get(store_key, (store_key,))
+    rows: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+    for key in keys:
+        for store in _load_retailer_stores(key):
+            try:
+                store_id = int(store["id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if store_id in seen_ids:
+                continue
+            seen_ids.add(store_id)
+            rows.append(store)
+    return rows
+
 
 def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     radius_miles = 3958.8
@@ -324,7 +382,7 @@ def valid_store_ids_for_retailer(
     if not store_key:
         return set()
 
-    stores = _valid_stores(_load_retailer_stores(store_key))
+    stores = _valid_stores(_load_candidate_stores(store_key))
     if not stores and retailer_raw:
         stores = _valid_stores(_load_retailer_stores_by_exact_name(retailer_raw))
     return {int(store["id"]) for store in stores}
@@ -352,7 +410,7 @@ def find_store_for_deal(
     if not store_key or not zip_code:
         return StoreMatchResult(None, "none", 0, "missing_retailer_or_zip")
 
-    stores = _valid_stores(_load_retailer_stores(store_key))
+    stores = _valid_stores(_load_candidate_stores(store_key))
     used_name_fallback = False
 
     if not stores and retailer_raw:
