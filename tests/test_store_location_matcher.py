@@ -355,3 +355,106 @@ def test_explicit_radius_override_still_wins_for_whole_foods(monkeypatch):
 
     assert result.store_id is None
     assert result.matched_by == "no_store_within_radius"
+
+
+@pytest.mark.parametrize(
+    ("source_key", "canonical_key", "expected_radius"),
+    [
+        ("aldiv2", "aldi", 20.0),
+        ("smiths", "smiths", 20.0),
+        ("costco", "costco", 30.0),
+        ("heb", "heb", 30.0),
+        ("bjs", "bjs", 30.0),
+        ("foodlion", "foodlion", 30.0),
+        ("samsclub", "samsclub", 30.0),
+        ("dollartree", "dollartree", 30.0),
+        ("kroger", "kroger", 30.0),
+        ("krogerbanner", "kroger", 30.0),
+    ],
+)
+def test_retailer_specific_radius_defaults(source_key, canonical_key, expected_radius):
+    assert matcher.canonical_store_retailer_key(source_key) == canonical_key
+    assert matcher.RETAILER_MAX_NEARBY_MILES[canonical_key] == expected_radius
+
+
+def test_krogerbanner_uses_kroger_catalog_and_30_mile_radius(monkeypatch):
+    stores = [
+        {
+            "id": 185709,
+            "retailer_key": "kroger",
+            "zip_code": "46350",
+            "latitude": 41.606,
+            "longitude": -86.72,
+        }
+    ]
+    calls = []
+
+    def load(key):
+        calls.append(key)
+        return stores if key == "kroger" else []
+
+    monkeypatch.setattr(matcher, "_load_retailer_stores", load)
+    monkeypatch.setattr(matcher, "_get_zip_centroid", lambda zip_code: (41.6106, -87.0642))
+    monkeypatch.setattr(matcher, "_haversine", lambda *args: 16.57)
+
+    result = matcher.find_store_for_deal(
+        retailer_key="krogerbanner",
+        retailer_raw="kroger_banner",
+        zip_code="46304",
+    )
+
+    assert result.store_id == 185709
+    assert result.store_retailer_key == "kroger"
+    assert calls == ["kroger"]
+
+
+def test_keyfood_combines_same_banner_catalog_shards(monkeypatch):
+    stores = {
+        "keyfood": [
+            {
+                "id": 1,
+                "retailer_key": "keyfood",
+                "zip_code": "11201",
+                "latitude": 40.69,
+                "longitude": -73.99,
+            }
+        ],
+        "key_food": [
+            {
+                "id": 2,
+                "retailer_key": "key_food",
+                "zip_code": "11215",
+                "latitude": 40.66,
+                "longitude": -73.98,
+            }
+        ],
+    }
+    monkeypatch.setattr(matcher, "_load_retailer_stores", lambda key: stores.get(key, []))
+
+    candidates = matcher._load_candidate_stores("keyfood")
+
+    assert {store["id"] for store in candidates} == {1, 2}
+
+
+def test_30_mile_override_does_not_expand_global_default(monkeypatch):
+    stores = [
+        {
+            "id": 99,
+            "retailer_key": "target",
+            "zip_code": "90048",
+            "latitude": 34.0749,
+            "longitude": -118.3766,
+        }
+    ]
+    monkeypatch.setattr(matcher, "_load_retailer_stores", lambda key: stores)
+    monkeypatch.setattr(matcher, "_get_zip_centroid", lambda zip_code: (34.098, -118.327))
+    monkeypatch.setattr(matcher, "_haversine", lambda *args: 16.0)
+
+    result = matcher.find_store_for_deal(
+        retailer_key="target",
+        retailer_raw="Target",
+        zip_code="90046",
+    )
+
+    assert result.store_id is None
+    assert result.matched_by == "no_store_within_radius"
