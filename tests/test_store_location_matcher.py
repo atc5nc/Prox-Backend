@@ -188,3 +188,23 @@ def test_store_repair_splits_statement_timeout_failures():
 def test_store_repair_does_not_split_unrelated_write_failures():
     exc = Exception({"code": "23505", "message": "duplicate key"})
     assert not backfill._is_split_retryable_write_error(exc)
+
+
+def test_indexed_range_write_accepts_full_single_payload_page():
+    page = [{"id": 1}, {"id": 2}]
+    match = matcher.StoreMatchResult(11461, "nearby_single", 1, "nearest_within_radius")
+    payload = backfill._single_payload_for_full_page(page, [(1, match), (2, match)])
+    assert payload == {
+        "store_id": 11461,
+        "match_confidence": "nearby_single",
+        "candidate_store_count": 1,
+        "matched_by": "nearest_within_radius",
+    }
+
+
+def test_indexed_range_write_rejects_mixed_or_partial_pages():
+    page = [{"id": 1}, {"id": 2}]
+    first = matcher.StoreMatchResult(11461, "nearby_single", 1, "nearest_within_radius")
+    second = matcher.StoreMatchResult(11462, "nearby_single", 1, "nearest_within_radius")
+    assert backfill._single_payload_for_full_page(page, [(1, first), (2, second)]) is None
+    assert backfill._single_payload_for_full_page(page, [(1, first)]) is None

@@ -67,6 +67,9 @@ DISABLE_PREFETCH = os.getenv("STORE_LOCATION_DISABLE_PREFETCH", "0").strip().low
     "yes",
     "on",
 }
+INDEXED_RANGE_WRITES = os.getenv(
+    "STORE_LOCATION_INDEXED_RANGE_WRITES", "0"
+).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _effective_indexed_repair_max_pages(cli_max_pages: int | None) -> int | None:
@@ -294,6 +297,88 @@ def _write_batch(matched_pairs: list[tuple], dry_run: bool) -> tuple[int, int]:
             errors += e
 
     return success, errors
+
+
+def _single_payload_for_full_page(page: list, matched_pairs: list[tuple]) -> dict | None:
+    """Return the one shared payload only when every row on the page has it."""
+    if not page or len(matched_pairs) != len(page):
+        return None
+    payloads = {
+        json.dumps(_build_payload(match), sort_keys=True, default=str)
+        for _, match in matched_pairs
+    }
+    if len(payloads) != 1:
+        return None
+    return json.loads(next(iter(payloads)))
+
+
+def _write_indexed_page(
+    *,
+    source_store_id: int,
+    page: list,
+    matched_pairs: list[tuple],
+    retailer_filter: str | None,
+    created_after: str | None,
+    created_before: str | None,
+    end_id: int | None,
+    dry_run: bool,
+) -> tuple[int, int]:
+    """Use one indexed range write for a single-payload page, else fall back.
+
+    The optimization is opt-in for targeted repair services. The UPDATE is
+    constrained to the current legacy store_id, the exact fetched id range,
+    and the same cohort filters as the read. If it hits a statement/lock
+    timeout, the existing id-chunk writer retries safely by splitting.
+    """
+    if dry_run or not INDEXED_RANGE_WRITES:
+        return _write_batch(matched_pairs, dry_run)
+
+    payload = _single_payload_for_full_page(page, matched_pairs)
+    if payload is None:
+        return _write_batch(matched_pairs, dry_run)
+
+    first_id = int(page[0]["id"])
+    last_id = int(page[-1]["id"])
+    q = (
+        supabase.table("flyer_deals")
+        .update(payload)
+        .eq("store_id", source_store_id)
+        .gte("id", first_id)
+        .lte("id", last_id)
+    )
+    if retailer_filter:
+        q = q.eq("retailer_key", retailer_filter)
+    if created_after:
+        q = q.gte("created_at", created_after)
+    if created_before:
+        q = q.lt("created_at", created_before)
+    if end_id is not None:
+        q = q.lte("id", end_id)
+
+    try:
+        _execute_with_retry(
+            q.execute,
+            label=(
+                f"indexed range write source_store_id={source_store_id} "
+                f"ids={first_id}-{last_id} rows={len(matched_pairs)}"
+            ),
+        )
+        logger.info(
+            "Indexed range write source_store_id=%s rows=%s ids=%s-%s",
+            source_store_id,
+            len(matched_pairs),
+            first_id,
+            last_id,
+        )
+        return len(matched_pairs), 0
+    except Exception as exc:
+        logger.warning(
+            "Indexed range write fallback source_store_id=%s rows=%s: %s",
+            source_store_id,
+            len(matched_pairs),
+            exc,
+        )
+        return _write_batch(matched_pairs, dry_run)
 
 
 def _process_page(
@@ -589,12 +674,13 @@ def run_indexed_source_store_repair(
 
     logger.info(
         "Indexed repair source_store_retailer=%s source_stores=%s retailer=%s "
-        "page_size=%s write_chunk=%s cli_max_pages=%s effective_max_pages=%s",
+        "page_size=%s write_chunk=%s range_writes=%s cli_max_pages=%s effective_max_pages=%s",
         source_store_retailer_key,
         len(source_store_ids),
         retailer_filter or "*",
         effective_page_size,
         BATCH_WRITE_MAX,
+        INDEXED_RANGE_WRITES,
         max_pages,
         effective_max_pages,
     )
@@ -634,7 +720,16 @@ def run_indexed_source_store_repair(
                 repair_invalid_existing=True,
             )
             if matched_pairs:
-                success, errors = _write_batch(matched_pairs, dry_run)
+                success, errors = _write_indexed_page(
+                    source_store_id=source_store_id,
+                    page=page,
+                    matched_pairs=matched_pairs,
+                    retailer_filter=retailer_filter,
+                    created_after=created_after,
+                    created_before=created_before,
+                    end_id=end_id,
+                    dry_run=dry_run,
+                )
                 stats["matched"] += success
                 stats["errors"] += errors
 
