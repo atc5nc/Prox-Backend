@@ -1,5 +1,10 @@
 -- Queue-based price history sync for flyer_deals.
 -- This replaces the old daily sync_price_history_for_date(date) model.
+--
+-- The production v2.7 claim RPC is maintained in mobile_app migrations. The
+-- legacy claim below follows the same hot-path rule: only unclaimed rows are
+-- selected. The Edge Function explicitly releases claimed IDs if a write fails,
+-- avoiding a large stale-claim OR scan on flyer_deals.
 
 alter table public.flyer_deals
 add column if not exists price_history_claimed_at timestamptz,
@@ -38,21 +43,17 @@ begin
     select fd.id
     from public.flyer_deals fd
     where fd.price_history_processed_at is null
+      and fd.price_history_claimed_at is null
       and fd.match_key is not null
       and fd.store_id is not null
       and fd.product_price is not null
       and fd.product_price > 0
       and fd.processed_at is not null
       and fd.processed_at >= '2026-06-11 00:00:00+00'::timestamptz
-      and (
-        fd.price_history_claimed_at is null
-        or fd.price_history_claimed_at < now() - p_stale_after
-      )
     order by fd.processed_at asc, fd.id asc
     limit p_batch_size
     for update skip locked
-  ),
-  updated as (
+  ), updated as (
     update public.flyer_deals fd
     set price_history_claimed_at = now()
     from claimed
@@ -71,6 +72,37 @@ begin
   select * from updated;
 end;
 $$;
+
+create or replace function public.release_price_history_rows(
+  p_ids bigint[]
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+set statement_timeout = '30s'
+as $$
+declare
+  v_count integer;
+begin
+  if p_ids is null or array_length(p_ids,1) is null then
+    return 0;
+  end if;
+
+  update public.flyer_deals
+  set price_history_claimed_at = null
+  where id = any(p_ids)
+    and price_history_processed_at is null;
+
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+revoke all on function public.release_price_history_rows(bigint[])
+  from public, anon, authenticated;
+grant execute on function public.release_price_history_rows(bigint[])
+  to service_role;
 
 create or replace function public.mark_price_history_rows_processed(
   p_ids bigint[]
@@ -102,11 +134,12 @@ $$;
 -- Old daily RPC, if still present, should be removed after this queue sync is live.
 drop function if exists public.sync_price_history_for_date(date);
 
--- Production cron used after deploying supabase/functions/price-history-prod:
+-- Production cron used after deploying supabase/functions/price-history-prod.
+-- The legacy job name is retained for compatibility.
 -- select cron.schedule(
 --   'price-history-sync-15min',
---   '*/15 * * * *',
---   $$
+--   '30 seconds',
+--   $cron$
 --     select net.http_post(
 --       url := 'https://yhyaslxqzwqptknmybqa.supabase.co/functions/v1/price-history-prod',
 --       headers := jsonb_build_object(
@@ -118,7 +151,7 @@ drop function if exists public.sync_price_history_for_date(date);
 --         )
 --       ),
 --       body := '{"batch_size": 1000}'::jsonb,
---       timeout_milliseconds := 60000
+--       timeout_milliseconds := 120000
 --     );
---   $$
+--   $cron$
 -- );
