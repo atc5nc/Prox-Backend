@@ -39,6 +39,7 @@ const SIZE_IN_NAME_RE = /(\d+(?:\.\d+)?)\s*(oz|fl\.?\s*oz|g|gram|lb|pound|ml|lit
 
 Deno.serve(async (req) => {
   const startedAt = new Date();
+  let claimedIds: number[] = [];
   try {
     const body = await readJson(req);
     const dryRun = body?.dry_run === true;
@@ -55,12 +56,15 @@ Deno.serve(async (req) => {
     }
 
     const claimedRows = await claimPriceHistoryRows(batchSize);
-    const claimedIds = claimedRows.map((row) => row.id);
+    claimedIds = claimedRows.map((row) => row.id);
     const observedAt = new Date().toISOString();
     const historyRows = buildPriceHistoryRows(claimedRows, observedAt);
     const upsert = await upsertPriceHistory(historyRows);
     const markedProcessed = claimedIds.length
       ? await markPriceHistoryRowsProcessed(claimedIds)
+      : 0;
+    const releasedUnmarked = markedProcessed < claimedIds.length
+      ? await releasePriceHistoryRows(claimedIds)
       : 0;
 
     return jsonResponse({
@@ -72,10 +76,19 @@ Deno.serve(async (req) => {
       rows_written: upsert.written,
       write_batches: upsert.batches,
       rows_marked_processed: markedProcessed,
+      rows_released_unmarked: releasedUnmarked,
       canonical_rows: historyRows.filter((r) => r.canonical_product_id != null).length,
       duration_ms: Date.now() - startedAt.getTime(),
     });
   } catch (error) {
+    if (claimedIds.length) {
+      try {
+        const released = await releasePriceHistoryRows(claimedIds);
+        console.warn(`released ${released}/${claimedIds.length} price-history claims after failure`);
+      } catch (releaseError) {
+        console.error("failed to release price-history claims after error", releaseError);
+      }
+    }
     console.error("price-history-prod failed", error);
     return jsonResponse(
       { ok: false, error: error instanceof Error ? error.message : String(error) },
@@ -242,6 +255,24 @@ async function upsertPriceHistory(rows: PriceHistoryRow[]): Promise<UpsertResult
     );
   }
   return { written, batches };
+}
+
+async function releasePriceHistoryRows(ids: number[]): Promise<number> {
+  if (!ids.length) return 0;
+  const { url } = supabaseConfig();
+  const res = await retry(async () => {
+    const response = await fetch(`${url}/rest/v1/rpc/release_price_history_rows`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ p_ids: ids }),
+    });
+    if (!response.ok) {
+      throw new Error(`release claims rpc failed: ${response.status} ${await response.text()}`);
+    }
+    return response;
+  }, `release_price_history_rows count=${ids.length}`);
+
+  return Number((await res.json()) ?? 0);
 }
 
 async function markPriceHistoryRowsProcessed(ids: number[]): Promise<number> {
