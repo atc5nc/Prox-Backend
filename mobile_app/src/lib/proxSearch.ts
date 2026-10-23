@@ -31,7 +31,7 @@ export async function proxSearchSingleItem(params: {
       image_link:        r.image_link ?? null,
       retailer_logo_url: null,
       brand:             null,
-      category:          null,
+      category:          r.category ?? null,
       is_store_brand:    null,
       is_organic:        null,
       base_amount:       null,

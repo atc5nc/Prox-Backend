@@ -2,6 +2,7 @@ const BASE_URL = "https://prox-api-production.up.railway.app";
 
 export interface SearchResult {
   canonical_product_name: string;
+  category: string | null;
   brand: string | null;
   retailer_count: number;
   min_price: number;
